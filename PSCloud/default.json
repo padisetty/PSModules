@@ -1,0 +1,7 @@
+{
+  "ParameterValues" : {                    
+    "MultiHypervVHDBaseRoot" : "c:\\VHDBase",
+    "MultiHypervVHDDiffRoot" : "c:\\VHDDiff",
+    "MultiHypervVHDDataRoot" : "c:\\VHDData"
+  }
+}
