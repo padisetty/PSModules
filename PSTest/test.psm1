@@ -82,14 +82,24 @@ function Get-PsTestResults ([string]$Filter1, [string]$Filter2,
     }
 }
 
-function Convert-PsTestToTableFormat ()
+function Convert-PsTestToTableFormat ($inputFile = '')
 {
-    $finfo = Get-Item $PsTestDefaults.ResultsFile
+    if ($inputFile.Length -eq 0) {
+        $inputFile = $PsTestDefaults.ResultsFile
+    }
+    
+    if (! (Test-Path $inputFile -PathType Leaf)) {
+        Write-Error "Input file not found, file=$inputFile"
+        r
+    }
 
-    $outFile = $PsTestDefaults.ResultsFile.Replace($finfo.Extension, '.output' + $finfo.Extension)
+    $finfo = Get-Item $inputFile
+    $outFile = $inputFile.Replace($finfo.Extension, '.output' + $finfo.Extension)
+    Write-Verbose "Input file=$inputFile"
+    Write-Verbose "Output file=$outFile"
 
     $labels =  @()
-    foreach ($line in (cat $PsTestDefaults.ResultsFile))
+    foreach ($line in (cat $inputFile))
     {
         $parts = $line.Split("`t")
         foreach ($part in $parts)
@@ -101,7 +111,6 @@ function Convert-PsTestToTableFormat ()
             }
         }
     }
-
     
     $st = ''
     foreach ($label in $labels)
@@ -109,7 +118,7 @@ function Convert-PsTestToTableFormat ()
         $st += "$label`t"
     }
     $st > $outFile
-    foreach ($line in (cat $PsTestDefaults.ResultsFile))
+    foreach ($line in (cat $inputFile))
     {
         $row = @{}
 
@@ -129,83 +138,11 @@ function Convert-PsTestToTableFormat ()
     }
 }
 
-function extractMetric ()
-{
-    [CmdletBinding()]
-    param (
-        [parameter(ValueFromPipeline=$true)]
-        [string]$st
-    )
-    PROCESS {
-        if ($st.StartsWith('#PSTEST#')) 
-        { 
-            $a = $st.Substring(8).Trim().Split('=')
-            if ($a.Count -ne 2 -or $a[0].Trim().Length -eq 0 -or $a[1].Trim().Length -eq 0)
-            {
-                Write-Error '#PSTEST# invalid format, it has to be of the form #PSTEST# x=y'
-            }
-            $obj."$($a[0].Trim())" = $a[1].Trim()
-        }
-        $st
-    }
-}
-
-function Invoke-PsTestSingleRun ([string[]] $Tests, [string]$OnError, [switch] $ContinueOnError)
-{
-    try
-    {
-        $script:diffobj = New-Object 'system.collections.generic.dictionary[[string],[object]]'
-        Write-PSUtilLog ''
-        Write-PSUtilLog ''
-        Write-PSUtilLog "<<<< BEGIN TEST Tests=($($Tests -join ', ')), $(getDiffString)"
-        foreach ($test in $Tests)
-        {
-            #$tinfo = gcm $test
-            #$tinfo.ScriptBlock.Attributes
-
-            Write-PSUtilLog "Start $test $(getDiffString)"
-            . $test 4>&1 3>&1 5>&1 | extractMetric | Write-PSUtilLog
-            Write-PSUtilLog "End $test $(getDiffString)"
-        }
-        $obj.Result = 'Success'
-        logStat (Get-PSUtilStringFromObject $obj)
-        Write-PSUtilLog ">>>> --------------- END TEST SUCCESS --------------------" 'Green'
-    }
-    catch
-    {
-        $obj.Result = 'Fail'
-        $obj.Message = $_.Exception.Message
-        logStat (Get-PSUtilStringFromObject $obj) 'Red'
-        $ex = $_.Exception
-
-        if ($OnError -ne $null)
-        {
-            Write-PSUtilLog ''
-            Write-PSUtilLog ''
-            Write-PSUtilLog 'OnError Dump'
-            try
-            {
-                . $OnError 4>&1 3>&1 5>&1 | Write-PSUtilLog
-            }
-            catch
-            {
-                Write-PSUtilLog "OnError: Message=$($_.Exception.Message)"
-            }
-        }
-        Write-PSUtilLog ">>>> --------------- END TEST FAIL --------------------" 'Red'
-
-        if (! $ContinueOnError)
-        {
-            throw $ex
-        }
-    }
-}
-
 function Invoke-PsTestRandomLoop (
         [Parameter(Mandatory=$true)][string] $Name,
-        [string[]] $Tests,
+        [ScriptBlock] $Main,
         [Hashtable]$Parameters,
-        [string]$OnError,
+        [ScriptBlock]$OnError,
         [switch] $ContinueOnError,
         [int]$MaxCount = 10
     )
@@ -236,8 +173,7 @@ function Invoke-PsTestRandomLoop (
             $obj.$key = randomPick $parameters.$key
         }
         $count++
-        Invoke-PsTestSingleRun -Tests $tests -OnError $OnError -ContinueOnError:$ContinueOnError
-        gstat
+        singleRun -sb $Main -onError $OnError -continueOnError:$ContinueOnError
 
         if ($count -ge $MaxCount)
         {
@@ -372,5 +308,132 @@ function getDiffString ()
     if ($st.Length -gt 0)
     {
         "DiffParams=($st)"
+    }
+}
+
+
+
+
+function extractMetric ()
+{
+    [CmdletBinding()]
+    param (
+        [parameter(ValueFromPipeline=$true)]
+        [string]$st
+    )
+    PROCESS {
+        if ($st.StartsWith('#PSTEST#')) 
+        { 
+            $a = $st.Substring(8).Trim().Split('=')
+            $key = ([string]$a[0]).Trim()
+            $value = ([string]$a[1]).Trim()
+            if ($a.Count -ne 2 -or $key.Length -eq 0 -or $value.Length -eq 0)
+            {
+                Write-Error '#PSTEST# invalid format, it has to be of the form #PSTEST# x=y'
+            } else {
+                if ($obj.$key) {
+                    $obj.$key = $obj.$key + ", " + $value
+                } else {
+                    $obj.$key = $value
+                }
+            }
+        }
+        $st
+    }
+}
+
+function singleRun ([ScriptBlock] $sb, [ScriptBlock]$onError, [switch] $continueOnError)
+{
+    try
+    {
+        Write-PSUtilLog ''
+        Write-PSUtilLog ''
+        Write-PSUtilLog '<<<< --------------- BEGIN TEST --------------------'
+        & $sb 4>&1 3>&1 5>&1 | extractMetric | Write-PSUtilLog
+        $obj.Result = 'Success'
+        logStat (Get-PSUtilStringFromObject $obj)
+        gstat
+        Write-PSUtilLog ">>>> --------------- END TEST SUCCESS --------------------" 'Green'
+    }
+    catch
+    {
+        $obj.Result = 'Fail'
+        $obj.Message = $_.Exception.Message
+        logStat (Get-PSUtilStringFromObject $obj) 'Red'
+        $ex = $_.Exception
+
+        if ($onError -ne $null)
+        {
+            Write-PSUtilLog ''
+            Write-PSUtilLog ''
+            Write-PSUtilLog 'OnError Dump'
+            try
+            {
+                & $onError 4>&1 3>&1 5>&1 | Write-PSUtilLog
+            }
+            catch
+            {
+                Write-PSUtilLog "OnError: Message=$($_.Exception.Message)"
+            }
+        }
+        gstat
+        Write-PSUtilLog ">>>> --------------- END TEST FAIL --------------------" 'Red'
+
+        if (! $ContinueOnError)
+        {
+            throw $ex
+        }
+    }
+}
+
+
+function singleRunWithStringArray ([string[]] $Tests, [string]$OnError, [switch] $ContinueOnError)
+{
+    try
+    {
+        $script:diffobj = New-Object 'system.collections.generic.dictionary[[string],[object]]'
+        Write-PSUtilLog ''
+        Write-PSUtilLog ''
+        Write-PSUtilLog "<<<< BEGIN TEST Tests=($($Tests -join ', ')), $(getDiffString)"
+        foreach ($test in $Tests)
+        {
+            #$tinfo = gcm $test
+            #$tinfo.ScriptBlock.Attributes
+
+            Write-PSUtilLog "Start $test $(getDiffString)"
+            iex $test 4>&1 3>&1 5>&1 | extractMetric | Write-PSUtilLog
+            Write-PSUtilLog "End $test $(getDiffString)"
+        }
+        $obj.Result = 'Success'
+        logStat (Get-PSUtilStringFromObject $obj)
+        Write-PSUtilLog ">>>> --------------- END TEST SUCCESS --------------------" 'Green'
+    }
+    catch
+    {
+        $obj.Result = 'Fail'
+        $obj.Message = $_.Exception.Message
+        logStat (Get-PSUtilStringFromObject $obj) 'Red'
+        $ex = $_.Exception
+
+        if ($OnError -ne $null)
+        {
+            Write-PSUtilLog ''
+            Write-PSUtilLog ''
+            Write-PSUtilLog 'OnError Dump'
+            try
+            {
+                . $OnError 4>&1 3>&1 5>&1 | Write-PSUtilLog
+            }
+            catch
+            {
+                Write-PSUtilLog "OnError: Message=$($_.Exception.Message)"
+            }
+        }
+        Write-PSUtilLog ">>>> --------------- END TEST FAIL --------------------" 'Red'
+
+        if (! $ContinueOnError)
+        {
+            throw $ex
+        }
     }
 }

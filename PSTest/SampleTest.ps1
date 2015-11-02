@@ -12,7 +12,7 @@ cd c:\temp
 
 function Setup ()
 {
-    Write-Host 'Setup ' -ForegroundColor Yellow
+    Write-PSUtilLog 'Setup ' Yellow
 
     $obj.Param1 = 'Value1'
     $obj.Param2 = 'Value2'
@@ -21,13 +21,14 @@ function Setup ()
 $i = 0
 function Cleanup ()
 {
-    Write-Host 'Cleanup ' -ForegroundColor Yellow
+    Write-PSUtilLog 'Cleanup ' Yellow
 }
 
-function Test1 ()
+function Test1 ($st)
 {
-    Write-Host 'Test1' -ForegroundColor Yellow
-    $i++
+    Write-PSUtilLog 'Test1' Yellow
+    Write-PSUtilLog "Param st=$st"
+    $script:i++
     if ($i -eq 2)
     {
         Write-Error 'Test1 fail for second time around'
@@ -36,20 +37,26 @@ function Test1 ()
 
 function Test2 ()
 {
-    Write-Host 'Test2' -ForegroundColor Yellow
+    Write-PSUtilLog 'Test2' Yellow
 }
 
 function OnError ()
 {
-    Write-Host 'OnError' -ForegroundColor Yellow
+    Write-PSUtilLog 'OnError' Yellow
 }
 
 Invoke-PsTestRandomLoop -Name $name `
-    -Tests @('Cleanup', 'Setup', 'Test1', 'Test2', 'Cleanup') `
+    -Main {
+        Cleanup
+        Setup
+        Test1 "siva"
+        Test2
+        Cleanup
+      }`
     -Parameters @{ 
         ParamA = @('A1', 'A2', 'A3')
         ParamB = @('B1', 'B2', 'B3')
     } `
-    -OnError 'OnError' `
+    -OnError {OnError} `
     -ContinueOnError `
     -MaxCount 3
