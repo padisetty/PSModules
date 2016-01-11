@@ -632,14 +632,17 @@ function Invoke-WinEC2Command (
     Write-Verbose "Invoke-WinEC2Command - NameOrInstanceIds=$NameOrInstanceIds, ScriptBlock=$sb, Region=$Region"
 
     $parameters = @{}
-    if ($Credential)
-    {
-        $parameters.'Credential' = $Credential
-    }
-
     $instances = findInstance $NameOrInstanceIds 'running'
     foreach ($instance in $instances)
     {
+        if ($Credential)
+        {
+            $parameters.'Credential' = $Credential
+        } else {
+            $data = Get-WinEC2Password $instance.InstanceId
+            $secpasswd = ConvertTo-SecureString $data.Password -AsPlainText -Force
+            $parameters.'Credential' = New-Object System.Management.Automation.PSCredential ("Administrator", $secpasswd)
+        }
         Invoke-Command -ComputerName $instance.PublicIpAddress -Port 80 -ScriptBlock $sb @parameters
     }
 }
@@ -682,13 +685,17 @@ function Get-WinEC2Password (
     $instances = findInstance $NameOrInstanceId -desiredState 'running'
     foreach ($instance in $instances)
     {
+        $data = New-Object 'PSObject'
         $wininstance = getWinInstanceFromEC2Instance $instance
-        $password = Get-EC2PasswordData -InstanceId $instance.InstanceId -PemFile (Get-WinEC2KeyFile $instance.KeyName) -Decrypt
+        $data | Add-Member -NotePropertyName 'InstanceId' -NotePropertyValue $wininstance.InstanceId
         if ($wininstance.TagName -ne $null)
         {
-            $name = ", name=$($wininstance.TagName)"
+            $data | Add-Member -NotePropertyName 'Name' -NotePropertyValue $wininstance.TagName
         }
-        "$($wininstance.InstanceId)$name, Password=$password, IP=$($wininstance.PublicIPAddress)"
+        $password = Get-EC2PasswordData -InstanceId $instance.InstanceId -PemFile (Get-WinEC2KeyFile $instance.KeyName) -Decrypt
+        $data | Add-Member -NotePropertyName 'Password' -NotePropertyValue $password
+        $data | Add-Member -NotePropertyName 'PublicIPAddress' -NotePropertyValue $wininstance.PublicIPAddress
+        $data
     }
 }
 
