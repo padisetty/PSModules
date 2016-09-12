@@ -147,7 +147,7 @@ function Invoke-PsTestRandomLoop (
         [int]$MaxCount = 10
     )
 {
-    Set-PSUtilLogFile "$($PsTestDefaults.DefaultOutputFolder)\test$name.log" -delete
+    Set-PSUtilLogFile "$($PsTestDefaults.DefaultOutputFolder)\$name.log" -delete
 
     if ((Get-Host).Name.Contains(' ISE '))
     {
@@ -185,9 +185,11 @@ function Invoke-PsTestRandomLoop (
 
 function Invoke-PsTestLaunchInParallel (
         [int]$ParallelShellCount = 1, 
-        [Parameter (Mandatory=$true)][string]$PsFileToLaunch
+        [Parameter (Mandatory=$true)][string]$PsFileToLaunch,
+        [int]$TotalCount = $ParallelShellCount
         )
 {
+    $Count = 0
     Write-Verbose "LaunchTest Parallel ParallelShellCount=$ParallelShellCount, PsFileToLaunch=$PsFileToLaunch"
 
     if (!(Test-Path -Path $PsFileToLaunch -PathType Leaf))
@@ -229,22 +231,30 @@ function Invoke-PsTestLaunchInParallel (
 
     while ($true)
     {
+        $currentCount = 0
         for ($j = 0; $j -lt $ParallelShellCount; $j++)
         {
-            if ($proceslist[$j] -eq 0)
+            if ($proceslist[$j] -eq 0 -and $Count -lt $TotalCount)
             {
-                $proceslist[$j] = Start-Process "$PSHOME\PowerShell.exe" -ArgumentList "-NoProfile -NoExit -f `"$PsFileToLaunch`" $namePrefix$j" -PassThru
-                Write-Verbose "Started $PsFileToLaunch $j ProcessId=$($proceslist[$j].id)"
+                $currentCount++
+                $Count++
+                $proceslist[$j] = Start-Process "$PSHOME\PowerShell.exe" -ArgumentList "-NoProfile -f $PsFileToLaunch $namePrefix$Count" -PassThru
+                Write-Verbose "$Count Started $PsFileToLaunch $j ProcessId=$($proceslist[$j].id)"
                 Sleep 1
             }
             elseif ($proceslist[$j] -ne 0) 
             {
+                $currentCount++
                 if (-not (Get-Process -id $proceslist[$j].Id -ea 0))
                 {
                     Write-Verbose "Completed ProcessId=$($proceslist[$j].id)"
                     $proceslist[$j] = 0
                 }
             }
+        }
+
+        if ($currentCount -eq 0) {
+            return
         }
 
         $stat = gstat
@@ -349,6 +359,7 @@ function singleRun ([ScriptBlock] $sb, [ScriptBlock]$onError, [switch] $continue
         Write-PSUtilLog ''
         Write-PSUtilLog ''
         Write-PSUtilLog '<<<< --------------- BEGIN TEST --------------------'
+        Write-PSUtilLog $sb.ToString()
         & $sb 4>&1 3>&1 5>&1 | extractMetric | Write-PSUtilLog
         $obj.Result = 'Success'
         logStat (Get-PSUtilStringFromObject $obj)

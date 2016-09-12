@@ -67,9 +67,9 @@ function Get-WinEC2Defaults ()
     }
 }
 
-Set-WinEC2Defaults -DefaultKeypairFolder 'c:\temp\keys' `
+Set-WinEC2Defaults -DefaultKeypairFolder 'c:\keys' `
         -DefaultKeypair 'winec2keypair' `
-        -DefaultSecurityGroup 'sg_winec2' `
+        -DefaultSecurityGroup 'winec2securitygroup' `
         -DefaultInstanceType 't2.medium' `
         -DefaultImagePrefix 'Windows_Server-2012-R2_RTM-English-64Bit-Base'
 
@@ -159,7 +159,7 @@ function findInstance
     if ($DesiredState -ne '*')
     {
         $filter = New-Object Amazon.EC2.Model.Filter
-        $filter.Name = "instance-state-name"
+        $filter.Name = 'instance-state-name'
         $DesiredState.Split(',') | %{$filter.Values.Add($_.Trim())}
         $filters += $filter
     }
@@ -498,14 +498,14 @@ function Stop-WinEC2Instance (
     $instances = findInstance $NameOrInstanceIds
     foreach ($instance in $instances)
     {
-        if ($instance.State -ne 'running')
+        if ($instance.State.Name -ne 'running')
         {
-            throw "$($instance.InstanceId) is in $($instance.State), only instance in running state can be stopped"
+            throw "$($instance.InstanceId) is in $($instance.State.Name), only instance in running state can be stopped"
         }
 
         $InstanceId = $instance.InstanceId
 
-        $a = Stop-EC2Instance -Instance $InstanceId -Force
+        $a = Stop-EC2Instance -Instance $InstanceId -ForceStop
 
         if (! $NoWait)
         {
@@ -537,9 +537,9 @@ function Start-WinEC2Instance (
 
     foreach ($instance in $instances)
     {
-        if ($instance.State -ne 'stopped')
+        if ($instance.State.Name -ne 'stopped')
         {
-            throw "$($instance.InstanceId) is in $($instance.State), only instance in stopped state can be started"
+            throw "$($instance.InstanceId) is in $($instance.State.Name), only instance in stopped state can be started"
         }
 
         $startTime = Get-Date
@@ -577,6 +577,7 @@ function Start-WinEC2Instance (
 function ReStart-WinEC2Instance (
         [Parameter (Position=1, Mandatory=$true)]$NameOrInstanceIds,
         [System.Management.Automation.PSCredential][Parameter(Position=2)]$Credential,
+        [switch]$IsReachabilityCheck,
         [Parameter(Position=3)]$Region
     )
 {
@@ -608,13 +609,15 @@ function ReStart-WinEC2Instance (
         $cmd = { ping  $PublicIpAddress; $LASTEXITCODE -eq 0}
         $a = Invoke-PSUtilWait $cmd "ReStart-WinEC2Instance - ping to succeed" 450
 
+        #wait for remote PS connection to establish
         $cmd = {New-PSSession $PublicIpAddress @parameters -Port 80}
         $s = Invoke-PSUtilWait $cmd "ReStart-WinEC2Instance - Remote connection" 300
         Remove-PSSession $s
-
-        $cmd = { $(Get-EC2InstanceStatus $InstanceId).Status.Status -eq 'ok'}
-        $a = Invoke-PSUtilWait $cmd "Start-WinEC2Instance - Reachabilitycheck" 600
-
+        
+        if ($IsReachabilityCheck) {
+            $cmd = { $(Get-EC2InstanceStatus $InstanceId).Status.Status -eq 'ok'}
+            $a = Invoke-PSUtilWait $cmd "ReStart-WinEC2Instance - Reachabilitycheck" 600
+        }
         Write-Verbose ('ReStart-WinEC2Instance - {0:mm}:{0:ss} - to restart' -f ((Get-Date) - $startTime))
     }
 }
