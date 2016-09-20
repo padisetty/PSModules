@@ -1,43 +1,35 @@
 ﻿# You should define before running this script.
-#    $name - You can create some thing like '0', '1', '2', '3' etc for each session
-param ([string]$name = '0')
+#    $name - Name identifies logfile and test name in results
+#            When running in parallel, name should be unique for each instance
+#            Some thing like 'SampleTest.0', 'SampleTest.1', etc when running in parallel
 
-Import-Module -Global PSTest -Force
+param ([string]$StartIndex = '1',
+        [string]$Param1='Value1'
+        )
 
-$VerbosePreference = 'Continue'
-trap { break } #This stops execution on any exception
-$ErrorActionPreference = 'Stop'
 
-cd c:\temp
+#Import-Module -Global PSTest -Force -Verbose:$false
 
-function Setup ()
+Invoke-PsTestPre
+
+#All tests receives $obj as input, which is a key value pairs
+#It contains all the inputs, and outputs produced thus far
+function Test1 ()
 {
-    Write-PSUtilLog 'Setup ' Yellow
-
-    $obj.Param1 = 'Value1'
-    $obj.Param2 = 'Value2'
+    Write-PSUtilLog 'Executing Test1' Yellow
+    New-PsTestOutput 'Param2' 'Set from Test1'
 }
 
-$i = 0
-function Cleanup ()
+function Test2 ($Param1='Default', $Param2)
 {
-    Write-PSUtilLog 'Cleanup ' Yellow
+    Write-PSUtilLog 'Executing Test2' Yellow
+    Write-PSUtilLog "Param1=$Param1"
+    Write-PSUtilLog "Param2=$Param2"
 }
 
-function Test1 ($st)
+function TestFail ()
 {
-    Write-PSUtilLog 'Test1' Yellow
-    Write-PSUtilLog "Param st=$st"
-    $script:i++
-    if ($i -eq 2)
-    {
-        Write-Error 'Test1 fail for second time around'
-    }
-}
-
-function Test2 ()
-{
-    Write-PSUtilLog 'Test2' Yellow
+    Write-Error 'Failed test case'
 }
 
 function OnError ()
@@ -45,18 +37,7 @@ function OnError ()
     Write-PSUtilLog 'OnError' Yellow
 }
 
-Invoke-PsTestRandomLoop -Name $name `
-    -Main {
-        Cleanup
-        Setup
-        Test1 "siva"
-        Test2
-        Cleanup
-      }`
-    -Parameters @{ 
-        ParamA = @('A1', 'A2', 'A3')
-        ParamB = @('B1', 'B2', 'B3')
-    } `
-    -OnError {OnError} `
-    -ContinueOnError `
-    -MaxCount 3
+$InputParameters = @{Param1=$Param1}
+Invoke-PsTest -Test 'Test1','Test2','TestFail' -InputParameters $InputParameters  -OnError 'OnError' -Count 2
+
+Invoke-PsTestPost

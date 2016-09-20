@@ -860,6 +860,89 @@ function Get-WinEC2KeyFile (
 function Update-WinEC2FireWallSource
 {
     param (
+        $SecurityGroupName = 'allow-my-ip',
+        $Region,
+        [Amazon.EC2.Model.IpPermission[]] $IpCustomPermissions = @() #Not implemented yet
+    )
+
+    trap {break }
+    $ErrorActionPreference = 'Stop'
+    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+
+    if ($securityGroup = (Get-EC2SecurityGroup | ? { $_.GroupName -eq $securityGroupName })) {
+        Write-Verbose "Skipping as SecurityGroup ($securityGroupName) already present."
+        $securityGroupId = $securityGroup.GroupId
+    } else {
+        #Security group and the instance should be in the same network (VPC)
+        $vpc = Get-EC2Vpc | ? { $_.IsDefault } | select -First 1
+        $securityGroupId = New-EC2SecurityGroup $securityGroupName  -Description "$securityGroupName Securitygroup" -VpcId $vpc.VpcId
+        $securityGroup = Get-EC2SecurityGroup -GroupName $securityGroupName 
+        Write-Verbose "Security Group $securityGroupName created"
+    }
+
+    #Compute new ip ranges
+    $bytes = (Invoke-WebRequest 'http://checkip.amazonaws.com/').Content
+    $myIP = @(([System.Text.Encoding]::Ascii.GetString($bytes).Trim() + "/32"))
+    Write-Verbose "$myIP retreived from checkip.amazonaws.com"
+    $ips = @($myIP)
+    $ips += (Get-EC2Vpc).CidrBlock
+
+    $SourceIPRanges = @()
+    foreach ($ip in $ips) {
+        $SourceIPRanges += @{ IpProtocol="tcp"; FromPort="80"; ToPort="5986"; IpRanges=$ip}
+        $SourceIPRanges += @{ IpProtocol='icmp'; FromPort = -1; ToPort = -1; IpRanges = $ip}
+    }
+
+    #Current expanded list
+    $currentIPRanges = @()
+    foreach ($ipPermission in $securityGroup.IpPermission) {
+        foreach ($iprange in $ipPermission.IpRange) {
+            $currentIPRanges += @{ IpProtocol=$ipPermission.IpProtocol; FromPort =$ipPermission.FromPort; ToPort = $ipPermission.ToPort; IpRanges = $iprange}
+        }
+    }
+
+    # Remove IPRange from current, if it should not be
+    foreach ($currentIPRange in $currentIPRanges) {
+        $found = $false
+        foreach ($SourceIPRange in $SourceIPRanges) {
+            if ($SourceIPRange.IpProtocol -eq $currentIPRange.IpProtocol -and
+                $SourceIPRange.FromPort -eq $currentIPRange.FromPort -and
+                $SourceIPRange.ToPort -eq $currentIPRange.ToPort -and
+                $SourceIPRange.IpRanges -eq $currentIPRange.IpRanges) {
+                    $found = $true
+                    break
+            }
+        }
+        if ($found) {
+            Write-Verbose "Skipping protocol=$($currentIPRange.IpProtocol) IPRange=$($currentIPRange.IpRanges)"
+        } else {
+            Revoke-EC2SecurityGroupIngress -GroupId $securityGroupId -IpPermission $currentIPRange
+            Write-Verbose "Revoked permissions protocol=$($currentIPRange.IpProtocol) IPRange=$($currentIPRange.IpRanges)"
+        }
+    }
+
+    # Add IPRange to current, if it is not present
+    foreach ($SourceIPRange in $SourceIPRanges) {
+        $found = $false
+        foreach ($currentIPRange in $currentIPRanges) {
+            if ($SourceIPRange.IpProtocol -eq $currentIPRange.IpProtocol -and
+                $SourceIPRange.FromPort -eq $currentIPRange.FromPort -and
+                $SourceIPRange.ToPort -eq $currentIPRange.ToPort -and
+                $SourceIPRange.IpRanges -eq $currentIPRange.IpRanges) {
+                    $found = $true
+                    break
+            }
+        }
+        if (! $found) {
+            Grant-EC2SecurityGroupIngress -GroupId $securityGroupId -IpPermissions $SourceIPRange
+            Write-Verbose "Granted permissions for ports 80 to 5986, for IP=($SourceIPRange.IpRanges)"
+        }
+    }
+}
+
+function Update-WinEC2FireWallSourceOld
+{
+    param (
         $SecurityGroupName = $WinEC2Defaults.DefaultSecurityGroup,
         $Region,
         $VpcId,

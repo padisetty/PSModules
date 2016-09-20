@@ -26,6 +26,11 @@ function Get-PsTestDefaults ()
     }
 }
 
+function Set-PsTestLogFile ($LogFileName) 
+{
+    Set-PSUtilLogFile "$($PsTestDefaults.DefaultOutputFolder)\$LogFileName.log" -delete
+}
+
 Set-PsTestDefaults -DefaultOutputFolder '.\Output'
 
 function Get-PsTestStatistics ([string]$logfile = $PsTestDefaults.ResultsFile)
@@ -42,14 +47,13 @@ function Get-PsTestStatistics ([string]$logfile = $PsTestDefaults.ResultsFile)
         {
             $percent = 0
         }
-        "Summary so far: Success=$success, Fail=$fail percent success=$percent%"
+        "Test Summary so far: Success=$success, Fail=$fail percent success=$percent%"
     }
     catch
     {
         Write-Warning "$logfile not found."
     }
 }
-
 
 function Get-PsTestFailedResults ([string]$Filter, [string]$ResultsFile = $PsTestDefaults.ResultsFile, [switch]$OutputInSingleLine)
 {
@@ -139,45 +143,42 @@ function Convert-PsTestToTableFormat ($inputFile = '')
 }
 
 function Invoke-PsTestRandomLoop (
-        [Parameter(Mandatory=$true)][string] $Name,
-        [ScriptBlock] $Main,
-        [Hashtable]$Parameters,
-        [ScriptBlock]$OnError,
-        [switch] $ContinueOnError,
-        [int]$MaxCount = 10
+    [String[]]$Tests, 
+    [String]$OnError, 
+    [Hashtable]$InputParameters,
+    [switch] $StopOnError,
+    [int]$StartIndex = 1,
+    [int]$Count = 1
     )
 {
-    Set-PSUtilLogFile "$($PsTestDefaults.DefaultOutputFolder)\$name.log" -delete
+    #Set-PSUtilLogFile "$($PsTestDefaults.DefaultOutputFolder)\$name.log" -delete
 
-    if ((Get-Host).Name.Contains(' ISE '))
-    {
-        #$psise.CurrentPowerShellTab.DisplayName = $MyInvocation.MyCommand.Name + " $name"
-    }
-    else
-    {
-        (get-host).ui.RawUI.WindowTitle = $MyInvocation.PSCommandPath + " $name"
-    }
+    #if ((Get-Host).Name.Contains(' ISE '))
+    #{
+    #    #$psise.CurrentPowerShellTab.DisplayName = $MyInvocation.MyCommand.Name + " $name"
+    #}
+    #else
+    #{
+    #    (get-host).ui.RawUI.WindowTitle = $MyInvocation.PSCommandPath + " $name"
+    #}
 
-    $count = 0
+    $currentCount = 1
     while ($true)
     {
-        $global:obj = New-Object 'system.collections.generic.dictionary[[string],[object]]'
-        $obj.Add('Name', $name)
-        $obj.Add('Result', '')
-        $obj.Add('Message', '')
-        $obj.Add('Count', $count)
-        $obj.Add('Time', "$((Get-Date).ToShortDateString()) $((Get-Date).ToShortTimeString())")
+        $obj = @{}
 
-        foreach ($key in $parameters.keys)
+        foreach ($key in $InputParameters.keys)
         {
-            $obj.$key = randomPick $parameters.$key
+            $obj.$key = randomPick $InputParameters.$key
+
+"for $key, Value=$($obj.$key)"
         }
-        $count++
-        singleRun -sb $Main -onError $OnError -continueOnError:$ContinueOnError
+        Invoke-PSTest -Tests $Tests -OnError $OnError -InputParameters $obj `
+                        -StopOnError $StopOnError -StartIndex $StartIndex -Count 1
 
-        if ($count -ge $MaxCount)
+        if ($currentCount -ge $Count)
         {
-            Write-PSUtilLog "Iterations reached $MaxCount so exiting"
+            Write-PSUtilLog "Iterations reached $Count so exiting"
             break
         }
     }
@@ -280,10 +281,153 @@ function Invoke-PsTestLaunchInParallel (
     return
 }
 
-New-Alias -Name gstat -Value Get-PsTestStatistics
-New-Alias -Name gfail -Value Get-PsTestFailedResults
-New-Alias -Name gpass -Value Get-PsTestPassedResults
-New-Alias -Name gresults -Value Get-PsTestResults
+function Get-PsTestName ([string]$Index) 
+{
+    $name = (Get-Item $MyInvocation.PSCommandPath).BaseName
+    if ($Index.Length -gt 0) {
+        $name = "$name.$Index"
+    }
+    return $name
+}
+
+function New-PsTestOutput ($Key, $Value)
+{
+    $obj.Add($Key, $Value)
+}
+
+function Test-PsTestMain ()
+{
+    (Get-PSCallStack)[-1].Command -eq (Get-Item $MyInvocation.PSCommandPath).Name
+}
+
+function Invoke-PsTestPre ()
+{
+    if (Test-PsTestMain) {
+        cd $PSScriptRoot
+        $outputFolder = '.\output'
+        Remove-Item $outputFolder -ea 0 -Force -Recurse
+        Set-PsTestDefaults -DefaultOutputFolder $outputFolder
+
+        $VerbosePreference = 'Continue'
+        trap { break } #This stops execution on any exception
+        $ErrorActionPreference = 'Stop'
+    }
+}
+
+function Invoke-PsTestPost ()
+{
+    if (Test-PsTestMain) {
+        Convert-PsTestToTableFormat    
+    }
+}
+
+
+function Invoke-PsTest (
+    [String[]]$Tests, 
+    [String]$OnError, 
+    [Hashtable]$InputParameters = @{},
+    [switch] $StopOnError,
+    [int]$StartIndex = 1,
+    [int]$Count = 1
+    )
+{
+    while ($Count-- -gt 0) {
+        $name = (Get-Item $MyInvocation.PSCommandPath).BaseName
+        Set-PsTestLogFile "$name.$StartIndex"
+    
+        $obj = New-Object 'system.collections.generic.dictionary[[string],[object]]'
+        #$global:obj = @{}
+        $obj.Add('Name', $name)
+        $obj.Add('Index', $StartIndex)
+        $obj.Add('Result', '')
+        $obj.Add('Message', '')
+
+        $InputParameters.Keys | % { $obj.$_ = $InputParameters.$_ }
+        foreach ($test in $Tests) {
+            $params = runTest -Test $test -OnError $OnError -StopOnError:$StopOnError -Index $StartIndex
+        }
+        $StartIndex++
+    }
+}
+
+function runFunction ([string]$functionName) {
+    if (Test-Path $functionName) {
+        $sb = [ScriptBlock]::Create($functionName)
+    } else {
+        $sb = (get-command $functionName -CommandType Function).ScriptBlock
+    }
+
+    foreach ($parameter in $sb.Ast.Parameters)
+    {
+        $paramname = $parameter.Name.VariablePath.UserPath
+        if ($obj.ContainsKey($paramname)) {
+            #$obj[$paramname] = $InputParameters[$paramname]
+            Write-PSUtilLog "    Parameter $paramname=$($obj[$paramname]) (Overritten)"
+        } else {
+            Write-PSUtilLog "    Parameter $paramname=$($parameter.DefaultValue) (Default Value)"
+        }
+    }
+
+    & $sb @obj 4>&1 3>&1 5>&1 | extractMetric | Write-PSUtilLog
+}
+
+function runTest (
+    [String]$Test, 
+    [String]$onError, 
+    [switch] $StopOnError,
+    [int]$Index)
+{
+    #$obj.'obj' = $obj
+    try
+    {
+        $startTime = Get-Date
+
+        Write-PSUtilLog ''
+        Write-PSUtilLog "<<<< BEGIN $Test.$Index"
+        runFunction $Test
+        $obj.Result = 'Success'
+    }
+    catch
+    {
+        $obj.Result = 'Fail'
+        $ex = $_.Exception
+        $line = $_.InvocationInfo.ScriptLineNumber
+        $script = (Get-Item $_.InvocationInfo.ScriptName).Name
+
+        $obj.Message = "$($ex.Message) ($script, Line #$line)" 
+
+        if ($onError -ne $null)
+        {
+            Write-PSUtilLog 'OnError Dump'
+            try
+            {
+                runFunction $onError
+            }
+            catch
+            {
+                Write-PSUtilLog "OnError: Message=$($_.Exception.Message)"
+            }
+        }
+
+        if ($StopOnError)
+        {
+            throw $ex
+        }
+    }
+    #Remove, so output does not have noise
+    #$obj.Remove('obj')
+
+    logStat $(Get-PSUtilStringFromObject $obj)
+    gstat
+    Write-PSUtilLog ">>>> END $Test.$Index ($($obj.'Result'))`n"
+    $obj
+}
+
+
+New-Alias -Name gstat -Value Get-PsTestStatistics -EA 0
+New-Alias -Name gfail -Value Get-PsTestFailedResults -EA 0
+New-Alias -Name gpass -Value Get-PsTestPassedResults -EA 0
+New-Alias -Name gresults -Value Get-PsTestResults -EA 0
 Export-ModuleMember -Alias * -Function *
 
 function logStat ([string]$message, 
@@ -291,7 +435,7 @@ function logStat ([string]$message,
 )
 {
     Invoke-PSUtilRetryOnError {$message >> $PsTestDefaults.ResultsFile}
-    Write-PSUtilLog $message $color
+    Write-PSUtilLog "Results:`n    $($message.Replace("`t","`n    "))" $color
 }
 
 function randomPick ([string[]] $list)
@@ -321,9 +465,6 @@ function getDiffString ()
     }
 }
 
-
-
-
 function extractMetric ()
 {
     [CmdletBinding()]
@@ -352,99 +493,3 @@ function extractMetric ()
     }
 }
 
-function singleRun ([ScriptBlock] $sb, [ScriptBlock]$onError, [switch] $continueOnError)
-{
-    try
-    {
-        Write-PSUtilLog ''
-        Write-PSUtilLog ''
-        Write-PSUtilLog '<<<< --------------- BEGIN TEST --------------------'
-        Write-PSUtilLog $sb.ToString()
-        & $sb 4>&1 3>&1 5>&1 | extractMetric | Write-PSUtilLog
-        $obj.Result = 'Success'
-        logStat (Get-PSUtilStringFromObject $obj)
-        gstat
-        Write-PSUtilLog ">>>> --------------- END TEST SUCCESS --------------------" 'Green'
-    }
-    catch
-    {
-        $obj.Result = 'Fail'
-        $obj.Message = $_.Exception.Message
-        logStat (Get-PSUtilStringFromObject $obj) 'Red'
-        $ex = $_.Exception
-
-        if ($onError -ne $null)
-        {
-            Write-PSUtilLog ''
-            Write-PSUtilLog ''
-            Write-PSUtilLog 'OnError Dump'
-            try
-            {
-                & $onError 4>&1 3>&1 5>&1 | Write-PSUtilLog
-            }
-            catch
-            {
-                Write-PSUtilLog "OnError: Message=$($_.Exception.Message)"
-            }
-        }
-        gstat
-        Write-PSUtilLog ">>>> --------------- END TEST FAIL --------------------" 'Red'
-
-        if (! $ContinueOnError)
-        {
-            throw $ex
-        }
-    }
-}
-
-
-function singleRunWithStringArray ([string[]] $Tests, [string]$OnError, [switch] $ContinueOnError)
-{
-    try
-    {
-        $script:diffobj = New-Object 'system.collections.generic.dictionary[[string],[object]]'
-        Write-PSUtilLog ''
-        Write-PSUtilLog ''
-        Write-PSUtilLog "<<<< BEGIN TEST Tests=($($Tests -join ', ')), $(getDiffString)"
-        foreach ($test in $Tests)
-        {
-            #$tinfo = gcm $test
-            #$tinfo.ScriptBlock.Attributes
-
-            Write-PSUtilLog "Start $test $(getDiffString)"
-            iex $test 4>&1 3>&1 5>&1 | extractMetric | Write-PSUtilLog
-            Write-PSUtilLog "End $test $(getDiffString)"
-        }
-        $obj.Result = 'Success'
-        logStat (Get-PSUtilStringFromObject $obj)
-        Write-PSUtilLog ">>>> --------------- END TEST SUCCESS --------------------" 'Green'
-    }
-    catch
-    {
-        $obj.Result = 'Fail'
-        $obj.Message = $_.Exception.Message
-        logStat (Get-PSUtilStringFromObject $obj) 'Red'
-        $ex = $_.Exception
-
-        if ($OnError -ne $null)
-        {
-            Write-PSUtilLog ''
-            Write-PSUtilLog ''
-            Write-PSUtilLog 'OnError Dump'
-            try
-            {
-                . $OnError 4>&1 3>&1 5>&1 | Write-PSUtilLog
-            }
-            catch
-            {
-                Write-PSUtilLog "OnError: Message=$($_.Exception.Message)"
-            }
-        }
-        Write-PSUtilLog ">>>> --------------- END TEST FAIL --------------------" 'Red'
-
-        if (! $ContinueOnError)
-        {
-            throw $ex
-        }
-    }
-}
