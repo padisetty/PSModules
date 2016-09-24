@@ -172,7 +172,7 @@ function Invoke-PsTest (
                 $testname = $test
             }
             if ($_depth -eq 1) {
-                $_LogFileName = "$LogNamePrefix$testname.$i"
+                $_LogFileName = "$LogNamePrefix$testname.$i.log"
             }
             if ($testnames.Length -gt 0) {
                 $testnames += ', '
