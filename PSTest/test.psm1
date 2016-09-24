@@ -365,7 +365,7 @@ function Invoke-PsTestLaunchInParallel (
             $null = md $count
 
             #$ps = Start-Process "$PSHOME\PowerShell.exe"  -PassThru -ArgumentList "-NoExit -NoProfile -f `"$($finfo.FullName)`" $namePrefix$Count" -WorkingDirectory $count
-            $ps = Start-Process "$PSHOME\PowerShell.exe"  -PassThru -ArgumentList "-NoExit -NoProfile -command PsTestLaunchWrapper `"'$($finfo.FullName)'`" $namePrefix$Count" -WorkingDirectory $count
+            $ps = Start-Process "$PSHOME\PowerShell.exe"  -PassThru -ArgumentList "-NoExit -NoProfile -command PsTestLaunchWrapper `"'$($finfo.FullName)'`" $Count" -WorkingDirectory $count
             $psmap.$count = $ps.Id
             Write-Verbose "$Count Started ProcessId=$($ps.id)"
             Sleep 1
@@ -380,7 +380,7 @@ function Invoke-PsTestLaunchInParallel (
             Write-Verbose 'Completed'
             return
         }
-        Sleep 1
+        Sleep 5
     }
     }
     catch
