@@ -14,7 +14,7 @@ function Get-PSUtilDefaultIfNull ($value, $defaultValue)
     }
 }
 
-$logfile = Get-PSUtilDefaultIfNull $logfile 'test.log'
+#$logfile = Get-PSUtilDefaultIfNull $logfile 'test.log'
 
 function Invoke-PSUtilIgnoreError ($scriptBlock)
 {
@@ -107,12 +107,17 @@ function Invoke-PSUtilWait ([ScriptBlock] $Cmd,
 
 function Set-PSUtilLogFile ([string]$file, [switch] $delete)
 {
-    Write-Verbose "New log file is $file"
+    Write-Verbose "New log file is '$file'"
     $script:logfile = $file
     if ($delete)
     {
         del $logfile -ea 0
     }
+}
+
+function Get-PSUtilLogFile ()
+{
+    return $script:logfile
 }
 
 function Write-PSUtilLog ()

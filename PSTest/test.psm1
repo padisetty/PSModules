@@ -1,14 +1,12 @@
 ﻿Import-Module -Global PSUtil -Force -Verbose:$false
 
-trap { break } #This stops execution on any exception
-$ErrorActionPreference = 'Stop'
-
-$PsTestDefaults = @{
-    }
-
+$ResultsFile = 'Results.csv'
+<#
 function Set-PsTestDefaults ($DefaultOutputFolder)
 {
-    $PsTestDefaults.DefaultOutputFolder = Get-PSUtilDefaultIfNull $DefaultOutputFolder $PsTestDefaults.DefaultOutputFolder
+    $script:PsTestDefaults = @{
+        DefaultOutputFolder = Get-PSUtilDefaultIfNull $DefaultOutputFolder $PsTestDefaults.DefaultOutputFolder
+    }
 
     if (! (Test-Path $PsTestDefaults.DefaultOutputFolder -PathType Container))
     {
@@ -28,12 +26,13 @@ function Get-PsTestDefaults ()
 
 function Set-PsTestLogFile ($LogFileName) 
 {
-    Set-PSUtilLogFile "$($PsTestDefaults.DefaultOutputFolder)\$LogFileName.log" -delete
+#    Set-PSUtilLogFile "$($PsTestDefaults.DefaultOutputFolder)\$LogFileName.log"
+    Set-PSUtilLogFile "$LogFileName.log"
 }
+#>
 
-Set-PsTestDefaults -DefaultOutputFolder '.\Output'
 
-function Get-PsTestStatistics ([string]$logfile = $PsTestDefaults.ResultsFile)
+function Get-PsTestStatistics ([string]$logfile = $ResultsFile)
 {
     try
     {
@@ -55,46 +54,44 @@ function Get-PsTestStatistics ([string]$logfile = $PsTestDefaults.ResultsFile)
     }
 }
 
-function Get-PsTestFailedResults ([string]$Filter, [string]$ResultsFile = $PsTestDefaults.ResultsFile, [switch]$OutputInSingleLine)
+function Get-PsTestFailedResults ([string]$Filter, [string]$ResultsFileName = $ResultsFile, [switch]$OutputInSingleLine)
 {
-   Get-PsTestResults 'Result=Fail' $filter $ResultsFile -OutputInSingleLine:$OutputInSingleLine
+   Get-PsTestResults 'Result=Fail' $filter $ResultsFileName -OutputInSingleLine:$OutputInSingleLine
 }
 
-
-function Get-PsTestPassedResults ([string]$Filter, [string]$ResultsFile = $PsTestDefaults.ResultsFile, [switch]$OutputInSingleLine)
+function Get-PsTestPassedResults ([string]$Filter, [string]$ResultsFileName = $ResultsFile, [switch]$OutputInSingleLine)
 {
-   Get-PsTestResults 'Result=Success' $filter $ResultsFile -OutputInSingleLine:$OutputInSingleLine
+   Get-PsTestResults 'Result=Success' $filter $ResultsFileName -OutputInSingleLine:$OutputInSingleLine
 }
 
 function Get-PsTestResults ([string]$Filter1, [string]$Filter2, 
-                       [string]$ResultsFile = $PsTestDefaults.ResultsFile, [switch]$OutputInSingleLine)
+                       [string]$ResultsFileName = $ResultsFile, [switch]$OutputInSingleLine)
 {
-    if (Test-Path $ResultsFile)
+    if (Test-Path $ResultsFileName)
     {
         if ($OutputInSingleLine)
         {
-            cat $ResultsFile | ? {$_ -like "*$Filter1*"} | ? {$_ -like "*$Filter2"}
+            cat $ResultsFileName | ? {$_ -like "*$Filter1*"} | ? {$_ -like "*$Filter2"}
         }
         else
         {
-            cat $ResultsFile | ? {$_ -like "*$Filter1*"} | ? {$_ -like "*$Filter2"} | % {$_.Replace("`t","`n    ")}
+            cat $ResultsFileName | ? {$_ -like "*$Filter1*"} | ? {$_ -like "*$Filter2"} | % {$_.Replace("`t","`n    ")}
         }
     }
     else
     {
-        Write-Warning "$ResultsFile not found"
+        Write-Warning "$ResultsFileName not found"
     }
 }
 
 function Convert-PsTestToTableFormat ($inputFile = '')
 {
     if ($inputFile.Length -eq 0) {
-        $inputFile = $PsTestDefaults.ResultsFile
+        $inputFile = $ResultsFile
     }
     
     if (! (Test-Path $inputFile -PathType Leaf)) {
         Write-Error "Input file not found, file=$inputFile"
-        r
     }
 
     $finfo = Get-Item $inputFile
@@ -142,222 +139,58 @@ function Convert-PsTestToTableFormat ($inputFile = '')
     }
 }
 
-function Invoke-PsTestRandomLoop (
-    [String[]]$Tests, 
-    [String]$OnError, 
-    [Hashtable]$InputParameters,
-    [switch] $StopOnError,
-    [int]$StartIndex = 1,
-    [int]$Count = 1
-    )
+
+function Test-PSTestExecuting ()
 {
-    #Set-PSUtilLogFile "$($PsTestDefaults.DefaultOutputFolder)\$name.log" -delete
-
-    #if ((Get-Host).Name.Contains(' ISE '))
-    #{
-    #    #$psise.CurrentPowerShellTab.DisplayName = $MyInvocation.MyCommand.Name + " $name"
-    #}
-    #else
-    #{
-    #    (get-host).ui.RawUI.WindowTitle = $MyInvocation.PSCommandPath + " $name"
-    #}
-
-    $currentCount = 1
-    while ($true)
-    {
-        $obj = @{}
-
-        foreach ($key in $InputParameters.keys)
-        {
-            $obj.$key = randomPick $InputParameters.$key
-
-"for $key, Value=$($obj.$key)"
-        }
-        Invoke-PSTest -Tests $Tests -OnError $OnError -InputParameters $obj `
-                        -StopOnError $StopOnError -StartIndex $StartIndex -Count 1
-
-        if ($currentCount -ge $Count)
-        {
-            Write-PSUtilLog "Iterations reached $Count so exiting"
-            break
-        }
-    }
+    return $_depth -gt 0
 }
 
-function Invoke-PsTestLaunchInParallel (
-        [int]$ParallelShellCount = 1, 
-        [Parameter (Mandatory=$true)][string]$PsFileToLaunch,
-        [int]$TotalCount = $ParallelShellCount
-        )
-{
-    $Count = 0
-    Write-Verbose "LaunchTest Parallel ParallelShellCount=$ParallelShellCount, PsFileToLaunch=$PsFileToLaunch"
-
-    if (!(Test-Path -Path $PsFileToLaunch -PathType Leaf))
-    {
-        throw "The file $PsFileToLaunch not found"
-    }
-    if (Test-Path $PsTestDefaults.DefaultOutputFolder -PathType Container)
-    {
-        $dinfo = Get-Item $PsTestDefaults.DefaultOutputFolder
-
-        mv  -Path $PsTestDefaults.DefaultOutputFolder -Destination "$($dinfo.Name).$((Get-Date).ToString('yyyy-MM-dd_hh.mm.ss'))"
-    }
-    $null = md $PsTestDefaults.DefaultOutputFolder
-
-    $finfo = Get-Item $PsFileToLaunch
-
-    $namePrefix = $finfo.BaseName
-
-    $proceslist = ,0*$ParallelShellCount
-    $prevstat = $null
-    $prevfails = $null
-
-    #Connect to the process if already present. It assumes that end with the same id
-    $pslist = gps powershell -ea 0
-    if ($pslist -ne $null)
-    {
-        for ($j = 0; $j -lt $ParallelShellCount; $j++)
-        {
-            foreach ($ps in $pslist)
-            {
-                if ($ps.MainWindowTitle -eq "$($finfo.FullName.ToLower()) $namePrefix$j")
-                {
-                    "Reusing for index=$j $($ps.ProcessName) with id=$($ps.Id)"
-                    $proceslist[$j] = $ps
-                }
-            }
-        }
-    }
-
-    while ($true)
-    {
-        $currentCount = 0
-        for ($j = 0; $j -lt $ParallelShellCount; $j++)
-        {
-            if ($proceslist[$j] -eq 0 -and $Count -lt $TotalCount)
-            {
-                $currentCount++
-                $Count++
-                $proceslist[$j] = Start-Process "$PSHOME\PowerShell.exe" -ArgumentList "-NoProfile -f $PsFileToLaunch $namePrefix$Count" -PassThru
-                Write-Verbose "$Count Started $PsFileToLaunch $j ProcessId=$($proceslist[$j].id)"
-                Sleep 1
-            }
-            elseif ($proceslist[$j] -ne 0) 
-            {
-                $currentCount++
-                if (-not (Get-Process -id $proceslist[$j].Id -ea 0))
-                {
-                    Write-Verbose "Completed ProcessId=$($proceslist[$j].id)"
-                    $proceslist[$j] = 0
-                }
-            }
-        }
-
-        if ($currentCount -eq 0) {
-            return
-        }
-
-        $stat = gstat
-        if ($prevstat -ne $stat)
-        {
-            $stat
-            $prevstat = $stat
-
-            $fails = gfail
-            foreach ($fail in $fails)
-            {
-                if (!$prevfails -or !$prevfails.Contains($fail))
-                {
-                    $fail
-                }
-            }
-
-            $prevfails = $fails
-            ''
-        }
-        Sleep 5
-    }
-    return
-}
-
-function Get-PsTestName ([string]$Index) 
-{
-    $name = (Get-Item $MyInvocation.PSCommandPath).BaseName
-    if ($Index.Length -gt 0) {
-        $name = "$name.$Index"
-    }
-    return $name
-}
-
-function New-PsTestOutput ($Key, $Value)
-{
-    $obj.Add($Key, $Value)
-}
-
-function Test-PsTestMain ()
-{
-    (Get-PSCallStack)[-1].Command -eq (Get-Item $MyInvocation.PSCommandPath).Name
-}
-
-function Invoke-PsTestPre ()
-{
-    if (Test-PsTestMain) {
-        cd $PSScriptRoot
-        $outputFolder = '.\output'
-        Remove-Item $outputFolder -ea 0 -Force -Recurse
-        Set-PsTestDefaults -DefaultOutputFolder $outputFolder
-
-        $VerbosePreference = 'Continue'
-        trap { break } #This stops execution on any exception
-        $ErrorActionPreference = 'Stop'
-    }
-}
-
-function Invoke-PsTestPost ()
-{
-    if (Test-PsTestMain) {
-        Convert-PsTestToTableFormat    
-    }
-}
-
-
+$_depth = 0
 function Invoke-PsTest (
     [String[]]$Tests, 
     [String]$OnError, 
     [Hashtable]$InputParameters = @{},
-    [switch] $StopOnError,
-    [int]$StartIndex = 1,
+    [switch]$StopOnError,
+    [string]$LogNamePrefix,
     [int]$Count = 1
     )
 {
-    while ($Count-- -gt 0) {
-        $name = (Get-Item $MyInvocation.PSCommandPath).BaseName
-        Set-PsTestLogFile "$name.$StartIndex"
-    
+    $_depth++
+
+    for ($i=1; $i -le $Count; $i++) {
         $obj = New-Object 'system.collections.generic.dictionary[[string],[object]]'
-        #$global:obj = @{}
-        $obj.Add('Name', $name)
-        $obj.Add('Index', $StartIndex)
+        $obj.Add('TestName', '')
         $obj.Add('Result', '')
         $obj.Add('Message', '')
+        $obj.Add('Log', '')
 
         $InputParameters.Keys | % { $obj.$_ = $InputParameters.$_ }
         foreach ($test in $Tests) {
-            $params = runTest -Test $test -OnError $OnError -StopOnError:$StopOnError -Index $StartIndex
+            if (Test-Path $test) {
+                $obj['TestName'] = (Get-Item $test).BaseName
+            } else {
+                $obj['TestName'] = $test
+            }
+            if ($_depth -eq 1) {
+                $_LogFileName = "$LogNamePrefix$($obj['TestName']).$i"
+            }
+
+            runTest -Test $test -OnError $OnError -StopOnError:$StopOnError -Index $i -Count $Count -LogFileName $_LogFileName
         }
-        $StartIndex++
     }
+    $_depth--
 }
 
 function runFunction ([string]$functionName) {
     if (Test-Path $functionName) {
-        $sb = [ScriptBlock]::Create($functionName)
+        $sb = [ScriptBlock]::Create((cat $functionName -Raw))
+        $parameters = $sb.Ast.ParamBlock.Parameters
     } else {
         $sb = (get-command $functionName -CommandType Function).ScriptBlock
+        $parameters = $sb.Ast.Parameters
     }
 
-    foreach ($parameter in $sb.Ast.Parameters)
+    foreach ($parameter in $parameters)
     {
         $paramname = $parameter.Name.VariablePath.UserPath
         if ($obj.ContainsKey($paramname)) {
@@ -367,29 +200,33 @@ function runFunction ([string]$functionName) {
             Write-PSUtilLog "    Parameter $paramname=$($parameter.DefaultValue) (Default Value)"
         }
     }
-
     & $sb @obj 4>&1 3>&1 5>&1 | extractMetric | Write-PSUtilLog
 }
 
 function runTest (
     [String]$Test, 
     [String]$onError, 
-    [switch] $StopOnError,
-    [int]$Index)
+    [switch]$StopOnError,
+    [int]$Index,
+    [int]$Count,
+    [string]$LogFileName)
 {
-    #$obj.'obj' = $obj
+    Set-PSUtilLogFile $LogFileName
+    $obj.'Log' = $LogFileName
+    $Obj.'Obj' = $Obj
     try
     {
         $startTime = Get-Date
 
         Write-PSUtilLog ''
-        Write-PSUtilLog "<<<< BEGIN $Test.$Index"
+        Write-PSUtilLog "<<<< BEGIN $Test ($Index of $Count), Log=$LogFileName"
         runFunction $Test
         $obj.Result = 'Success'
     }
     catch
     {
         $obj.Result = 'Fail'
+
         $ex = $_.Exception
         $line = $_.InvocationInfo.ScriptLineNumber
         $script = (Get-Item $_.InvocationInfo.ScriptName).Name
@@ -414,13 +251,147 @@ function runTest (
             throw $ex
         }
     }
-    #Remove, so output does not have noise
-    #$obj.Remove('obj')
-
+    $null = $Obj.Remove('Obj')
     logStat $(Get-PSUtilStringFromObject $obj)
     gstat
-    Write-PSUtilLog ">>>> END $Test.$Index ($($obj.'Result'))`n"
-    $obj
+    Write-PSUtilLog ">>>> END $Test Result=($($obj.'Result')) ($Index of $Count), Log=$LogFileName `n"
+}
+
+function Invoke-PsTestRandomLoop (
+    [String[]]$Tests, 
+    [String]$OnError, 
+    [Hashtable]$InputParameters,
+    [switch]$StopOnError,
+    [string]$LogNamePrefix = 'Random',
+    [int]$Count = 1
+    )
+{
+    for ($i = 1; $i -le $Count; $i++)
+    {
+        $obj = @{}
+
+        foreach ($key in $InputParameters.keys)
+        {
+            $obj.$key = randomPick $InputParameters.$key
+        }
+        Invoke-PSTest -Tests $Tests -OnError $OnError -InputParameters $obj `
+                        -StopOnError $StopOnError -Count 1 -LogNamePrefix "$($LogNamePrefix)Combo #$i-"
+    }
+}
+
+function PsTestLaunchWrapper ([string]$FileName, [string]$Name) {
+    $_depth++
+    $VerbosePreference = 'Continue'
+    trap { break } #This stops execution on any exception
+    $ErrorActionPreference = 'Stop'
+
+    "Executing $FileName"
+    & $FileName $Name
+    $_depth--
+    exit
+}
+
+function Invoke-PsTestLaunchInParallel (
+        [int]$ParallelShellCount = 1, 
+        [Parameter (Mandatory=$true)][string]$PsFileToLaunch,
+        [int]$TotalCount = $ParallelShellCount
+        )
+{
+    try {
+    $count = 0
+    Write-Verbose "LaunchTest Parallel ParallelShellCount=$ParallelShellCount, PsFileToLaunch=$PsFileToLaunch"
+
+    if (!(Test-Path -Path $PsFileToLaunch -PathType Leaf))
+    {
+        throw "The file $PsFileToLaunch not found"
+    }
+
+    $finfo = Get-Item $PsFileToLaunch
+
+    if ("$($finfo.DirectoryName)\output" -ne "$((pwd).Path)") {
+        throw "Please should execute LaunchInParallel from folder $((pwd).Path)\output"
+    }
+    $namePrefix = $finfo.BaseName
+
+    $proceslist = ,0*$ParallelShellCount
+    $prevstat = $null
+    $prevfails = $null
+
+    #Connect to the process if already present. It assumes that end with the same id
+    $global:psmap = @{}
+    if (Test-Path 'psmap.txt') {
+        cat 'psmap.txt' | % { $a = $_.split(' '); $psmap.Add([int]$a[0], [int]$a[1])}
+    }
+    $count = 0 # tracks total process launched so far
+
+    for ($j=1; $j -le $TotalCount; $j++) {
+        if (Test-Path $j) {
+            $count = $j
+            if ($psmap.ContainsKey($j)) {
+                $pid = $psmap.$j
+                Write-Verbose "Reusing for index=$j with pid=$($pid)"
+            } else {
+                Write-Verbose "Skipping $j"
+            }
+        } else {
+            break
+        }
+    }
+
+    while ($true)
+    {
+        $removelist = @()
+        $change = $false
+        foreach ($dir in $psmap.Keys) {
+            $pid = $psmap.$dir
+
+            if (-not (Get-Process -id $pid -ea 0))
+            {
+                $change = $true
+                $removelist += $dir
+                Write-Verbose "Completed ProcessId=$pid"
+                if (Test-Path "$dir\Results.csv") {
+                    cat "$dir\Results.csv" >> Results.csv
+                }
+            }
+        }
+
+        $removelist | % { $psmap.Remove($_) }
+
+        while ($psmap.Keys.Count -lt $ParallelShellCount -and 
+                    $Count -lt $TotalCount) {
+            $change = $true
+            $count++
+            $null = md $count
+
+            #$ps = Start-Process "$PSHOME\PowerShell.exe"  -PassThru -ArgumentList "-NoExit -NoProfile -f `"$($finfo.FullName)`" $namePrefix$Count" -WorkingDirectory $count
+            $ps = Start-Process "$PSHOME\PowerShell.exe"  -PassThru -ArgumentList "-NoExit -NoProfile -command PsTestLaunchWrapper `"'$($finfo.FullName)'`" $namePrefix$Count" -WorkingDirectory $count
+            $psmap.$count = $ps.Id
+            Write-Verbose "$Count Started ProcessId=$($ps.id)"
+            Sleep 1
+        }
+
+        if ($change) {
+            $psmap.GetEnumerator() | % { "$($_.Key) $($_.Value)" } > 'psmap.txt'
+        }
+
+        gstat
+        if ($psmap.Keys.Count -eq 0) {
+            Write-Verbose 'Completed'
+            return
+        }
+        Sleep 1
+    }
+    }
+    catch
+    {
+        $ex = $_.Exception
+        $line = $_.InvocationInfo.ScriptLineNumber
+        $script = (Get-Item $_.InvocationInfo.ScriptName).Name
+$ex
+$line
+$script
+    }
 }
 
 
@@ -428,13 +399,13 @@ New-Alias -Name gstat -Value Get-PsTestStatistics -EA 0
 New-Alias -Name gfail -Value Get-PsTestFailedResults -EA 0
 New-Alias -Name gpass -Value Get-PsTestPassedResults -EA 0
 New-Alias -Name gresults -Value Get-PsTestResults -EA 0
-Export-ModuleMember -Alias * -Function *
+Export-ModuleMember -Alias * -Function * -Verbose:$false
 
 function logStat ([string]$message, 
                   [ConsoleColor]$color = 'White'
 )
 {
-    Invoke-PSUtilRetryOnError {$message >> $PsTestDefaults.ResultsFile}
+    Invoke-PSUtilRetryOnError {$message >> $ResultsFile}
     Write-PSUtilLog "Results:`n    $($message.Replace("`t","`n    "))" $color
 }
 
@@ -493,3 +464,57 @@ function extractMetric ()
     }
 }
 
+<#
+function Get-PsTestName () 
+{
+    $name = ''
+    $stack = Get-PSCallStack
+    for ($i=1; $i -lt $stack.count; $i++) {
+        if ($stack[$i].ScriptName.Length -gt 0 -and $stack[$i].ScriptName -ne $stack[0].ScriptName) {
+            $name = (Get-Item $stack[$i].ScriptName).BaseName
+            break
+        }
+    }
+    return $name
+}
+
+
+function New-PsTestOutput ($Key, $Value)
+{
+    $obj.Add($Key, $Value)
+}
+
+function Test-PsTestMain ()
+{
+    $stack = Get-PSCallStack
+    for ($i=1; $i -lt $stack.count; $i++) {
+        if ($stack[$i].ScriptName -ne $stack[0].ScriptName) {
+            break
+        }
+    }
+    return $i -ge $stack.count - 1
+}
+
+function Invoke-PsTestPre ()
+{
+#    if (Test-PSTestExecuting) {
+        Write-Verbose 'Invoke-PsTestPre'
+        #cd $MyInvocation.PSScriptRoot
+        #$outputFolder = '.\output'
+        #Remove-Item $outputFolder -ea 0 -Force -Recurse
+        #Set-PsTestDefaults -DefaultOutputFolder $outputFolder
+
+        $VerbosePreference = 'Continue'
+        trap { break } #This stops execution on any exception
+        $ErrorActionPreference = 'Stop'
+#    }
+}
+
+function Invoke-PsTestPost ()
+{
+    if (Test-PsTestMain) {
+       Write-Verbose 'Invoke-PsTestPost'
+       Convert-PsTestToTableFormat    
+    }
+}
+#>
