@@ -159,31 +159,39 @@ function Invoke-PsTest (
 
     for ($i=1; $i -le $Count; $i++) {
         $obj = New-Object 'system.collections.generic.dictionary[[string],[object]]'
-        $obj.Add('TestName', '')
+        $obj.Add('Tests', '')
         $obj.Add('Result', '')
         $obj.Add('Message', '')
         $obj.Add('Log', '')
-
+        $testnames = ''
         $InputParameters.Keys | % { $obj.$_ = $InputParameters.$_ }
         foreach ($test in $Tests) {
             if (Test-Path $test) {
-                $obj['TestName'] = (Get-Item $test).BaseName
+                $testname = (Get-Item $test).BaseName
             } else {
-                $obj['TestName'] = $test
+                $testname = $test
             }
             if ($_depth -eq 1) {
-                $_LogFileName = "$LogNamePrefix$($obj['TestName']).$i"
+                $_LogFileName = "$LogNamePrefix$testname.$i"
             }
+            if ($testnames.Length -gt 0) {
+                $testnames += ', '
+            }
+            $testnames += $testname
 
             runTest -Test $test -OnError $OnError -StopOnError:$StopOnError -Index $i -Count $Count -LogFileName $_LogFileName
         }
+        $obj.'Tests' = $testnames
+        logStat $(Get-PSUtilStringFromObject $obj)
+        gstat
     }
     $_depth--
 }
 
 function runFunction ([string]$functionName) {
     if (Test-Path $functionName) {
-        $sb = [ScriptBlock]::Create((cat $functionName -Raw))
+        $sb=Get-Command $functionName | select -ExpandProperty ScriptBlock 
+        #$sb = [ScriptBlock]::Create((cat $functionName -Raw))
         $parameters = $sb.Ast.ParamBlock.Parameters
     } else {
         $sb = (get-command $functionName -CommandType Function).ScriptBlock
@@ -252,8 +260,6 @@ function runTest (
         }
     }
     $null = $Obj.Remove('Obj')
-    logStat $(Get-PSUtilStringFromObject $obj)
-    gstat
     Write-PSUtilLog ">>>> END $Test Result=($($obj.'Result')) ($Index of $Count), Log=$LogFileName `n"
 }
 

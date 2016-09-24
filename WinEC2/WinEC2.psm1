@@ -1079,4 +1079,4 @@ Set-Alias nwin New-WinEC2Instance
 Set-Alias rwin Remove-WinEC2Instance
 Set-Alias icmwin Invoke-WinEC2Command
 
-Export-ModuleMember -Alias * -Function * -Cmdlet *
+Export-ModuleMember -Alias * -Function * -Cmdlet * -Verbose:$false

@@ -18,7 +18,7 @@ $tests = @(
     "$PSScriptRoot\Test1.ps1"
     "$PSScriptRoot\Test2.ps1"
 )
-Invoke-PsTest -Test $tests -InputParameters $InputParameters  -Count 1 -LogNamePrefix 'Run-'
+Invoke-PsTest -Test $tests -InputParameters $InputParameters  -Count 2
 
 gstat
 
