@@ -1,43 +1,32 @@
 ﻿Import-Module -Global PSUtil -Force -Verbose:$false
 
 $ResultsFile = 'Results.csv'
-<#
-function Set-PsTestDefaults ($DefaultOutputFolder)
-{
-    $script:PsTestDefaults = @{
-        DefaultOutputFolder = Get-PSUtilDefaultIfNull $DefaultOutputFolder $PsTestDefaults.DefaultOutputFolder
-    }
 
-    if (! (Test-Path $PsTestDefaults.DefaultOutputFolder -PathType Container))
+function Explode ([Hashtable[]]$parameterSets, 
+                  [string]$key,
+                  [object[]]$values)
+{
+    [Hashtable[]] $results = @()
+
+    foreach ($parameterSet in $parameterSets)
     {
-        $null = md $PsTestDefaults.DefaultOutputFolder
+        foreach ($value in $values)
+        {
+            [Hashtable]$tempParameterSet = $parameterSet.Clone()
+            $tempParameterSet.Add($key, $value)
+            $results += $tempParameterSet
+        }
     }
-    Write-Verbose "Created folder $($PsTestDefaults.DefaultOutputFolder)"
-    $PsTestDefaults.ResultsFile = "$($PsTestDefaults.DefaultOutputFolder)\Results.csv"
-    Write-Verbose "Results files location is $($PsTestDefaults.ResultsFile)"
+    $results
 }
-
-function Get-PsTestDefaults ()
-{
-    @{
-        DefaultOutputFolder = $PsTestDefaults.DefaultOutputFolder
-    }
-}
-
-function Set-PsTestLogFile ($LogFileName) 
-{
-#    Set-PSUtilLogFile "$($PsTestDefaults.DefaultOutputFolder)\$LogFileName.log"
-    Set-PSUtilLogFile "$LogFileName.log"
-}
-#>
-
 
 function Get-PsTestStatistics ([string]$logfile = $ResultsFile)
 {
+    Write-Verbose "Get-PsTestStatistics (gstat) Log File=$logfile"
     try
     {
-        [int]$success = (cat $logfile | Select-String 'Result=Success').Line | wc -l
-        [int]$fail = (cat $logfile | Select-String 'Result=Fail').Line | wc -l
+        [int]$success = ((cat $logfile | Select-String 'Result=Success').Line | measure -Line).Lines
+        [int]$fail = ((cat $logfile | Select-String 'Result=Fail').Line | measure -Line).Lines
         if ($success+$fail -gt 0)
         {
             $percent = [decimal]::Round(100*$success/($success+$fail))
@@ -149,41 +138,72 @@ $_depth = 0
 function Invoke-PsTest (
     [String[]]$Tests, 
     [String]$OnError, 
-    [Hashtable]$InputParameters = @{},
+    [Hashtable[]]$InputParameterSets = @{},
     [switch]$StopOnError,
-    [string]$LogNamePrefix,
+    [string]$LogNamePrefix = 'PSTest',
     [int]$Count = 1
     )
 {
     $_depth++
 
     for ($i=1; $i -le $Count; $i++) {
-        $obj = New-Object 'system.collections.generic.dictionary[[string],[object]]'
-        $obj.Add('Tests', '')
-        $obj.Add('Result', '')
-        $obj.Add('Message', '')
-        $obj.Add('Log', '')
-        $testnames = ''
-        $InputParameters.Keys | % { $obj.$_ = $InputParameters.$_ }
-        foreach ($test in $Tests) {
-            if (Test-Path $test) {
-                $testname = (Get-Item $test).BaseName
-            } else {
-                $testname = $test
-            }
+        $set = 0
+        foreach ($inputParameterSet in $InputParameterSets) {
+            $set++
+            $global:obj = New-Object -TypeName ‘System.Collections.Generic.Dictionary[[String],[Object]]’ -ArgumentList @([System.StringComparer]::CurrentCultureIgnoreCase)
+            $obj.Add('Tests', '')
+            $obj.Add('Result', '')
+            $obj.Add('Message', '')
+            $obj.Add('Index', $i)
+            $testnames = ''
+            $inputParameterSet.Keys | % { $obj.$_ = $inputParameterSet.$_ }
             if ($_depth -eq 1) {
-                $_LogFileName = "$LogNamePrefix$testname.$i.log"
+                $prefix = ''
+                if ($Count -gt 1) {
+                    $prefix += "Iteration#$i "
+                }
+                if ($InputParameterSets.Count -gt 1) {
+                    $prefix += "ParameterSet#$set "
+                }
+                $_LogFileName = "$prefix$LogNamePrefix.log"
+                if (Test-Path $_LogFileName) {
+                    throw "Logfile $_LogFileName already exists"
+                }
             }
-            if ($testnames.Length -gt 0) {
-                $testnames += ', '
+            Set-PSUtilLogFile $_LogFileName
+            Write-PSUtilLog 'Inputs:'
+            foreach ($inputparameter in $inputParameterSet.Keys) {
+                Write-PSUtilLog "    $inputparameter=$($inputParameterSet[$inputparameter])"
             }
-            $testnames += $testname
+            Write-PSUtilLog 'Tests:'
+            foreach ($test in $Tests) {
+                Write-PSUtilLog "    $test"
+            }
+            Write-PSUtilLog "OnError=$OnError, StopOnError=$StopOnError, Count=$Count"
+            Write-PSUtilLog ''
 
-            runTest -Test $test -OnError $OnError -StopOnError:$StopOnError -Index $i -Count $Count -LogFileName $_LogFileName
+            foreach ($test in $Tests) {
+                if (Test-Path $test) {
+                    $testname = (Get-Item $test).BaseName
+                } else {
+                    $testname = $test
+                }
+                if ($testnames.Length -gt 0) {
+                    $testnames += ', '
+                }
+                $testnames += $testname
+
+                runTest -Test $test -TestName $testname -OnError $OnError -StopOnError:$StopOnError -Index $i -Count $Count
+            }
+            $obj.'Tests' = $testnames
+            if ($obj.Result.Length -eq 0) {
+                $obj.Result = 'Success'
+            }
+            logStat $(Get-PSUtilStringFromObject $obj)
+            gstat
+            Write-PSUtilLog ''
+            Write-PSUtilLog ''
         }
-        $obj.'Tests' = $testnames
-        logStat $(Get-PSUtilStringFromObject $obj)
-        gstat
     }
     $_depth--
 }
@@ -213,23 +233,19 @@ function runFunction ([string]$functionName) {
 
 function runTest (
     [String]$Test, 
+    [String]$TestName,
     [String]$onError, 
     [switch]$StopOnError,
     [int]$Index,
-    [int]$Count,
-    [string]$LogFileName)
+    [int]$Count)
 {
-    Set-PSUtilLogFile $LogFileName
-    $obj.'Log' = $LogFileName
-    $Obj.'Obj' = $Obj
     try
     {
         $startTime = Get-Date
 
-        Write-PSUtilLog ''
-        Write-PSUtilLog "<<<< BEGIN $Test ($Index of $Count), Log=$LogFileName"
+        Write-PSUtilLog "<<<< BEGIN '$TestName' ($Index of $Count)"
         runFunction $Test
-        $obj.Result = 'Success'
+        $obj."$TestName.Result" = 'Completed Successfully'
     }
     catch
     {
@@ -239,9 +255,14 @@ function runTest (
         $line = $_.InvocationInfo.ScriptLineNumber
         $script = (Get-Item $_.InvocationInfo.ScriptName).Name
 
-        $obj.Message = "$($ex.Message) ($script, Line #$line)" 
+        $message = "$($ex.Message) ($script, Line #$line)" 
+        $obj."$TestName.Result" = $message
+        Write-PSUtilLog "Failed Message=$message"
+        if ($obj.Message.Length -eq 0) {
+            $obj.Message = $message
+        }
 
-        if ($onError -ne $null)
+        if ($onError.Length -eq 0)
         {
             Write-PSUtilLog 'OnError Dump'
             try
@@ -250,7 +271,7 @@ function runTest (
             }
             catch
             {
-                Write-PSUtilLog "OnError: Message=$($_.Exception.Message)"
+                Write-PSUtilLog "OnError: Message=$message"
             }
         }
 
@@ -259,8 +280,7 @@ function runTest (
             throw $ex
         }
     }
-    $null = $Obj.Remove('Obj')
-    Write-PSUtilLog ">>>> END $Test Result=($($obj.'Result')) ($Index of $Count), Log=$LogFileName `n"
+    Write-PSUtilLog ">>>> END '$TestName' Result=($($obj."$TestName.Result")) ($Index of $Count)`n"
 }
 
 function Invoke-PsTestRandomLoop (
@@ -469,58 +489,4 @@ function extractMetric ()
         $st
     }
 }
-
-<#
-function Get-PsTestName () 
-{
-    $name = ''
-    $stack = Get-PSCallStack
-    for ($i=1; $i -lt $stack.count; $i++) {
-        if ($stack[$i].ScriptName.Length -gt 0 -and $stack[$i].ScriptName -ne $stack[0].ScriptName) {
-            $name = (Get-Item $stack[$i].ScriptName).BaseName
-            break
-        }
-    }
-    return $name
-}
-
-
-function New-PsTestOutput ($Key, $Value)
-{
-    $obj.Add($Key, $Value)
-}
-
-function Test-PsTestMain ()
-{
-    $stack = Get-PSCallStack
-    for ($i=1; $i -lt $stack.count; $i++) {
-        if ($stack[$i].ScriptName -ne $stack[0].ScriptName) {
-            break
-        }
-    }
-    return $i -ge $stack.count - 1
-}
-
-function Invoke-PsTestPre ()
-{
-#    if (Test-PSTestExecuting) {
-        Write-Verbose 'Invoke-PsTestPre'
-        #cd $MyInvocation.PSScriptRoot
-        #$outputFolder = '.\output'
-        #Remove-Item $outputFolder -ea 0 -Force -Recurse
-        #Set-PsTestDefaults -DefaultOutputFolder $outputFolder
-
-        $VerbosePreference = 'Continue'
-        trap { break } #This stops execution on any exception
-        $ErrorActionPreference = 'Stop'
-#    }
-}
-
-function Invoke-PsTestPost ()
-{
-    if (Test-PsTestMain) {
-       Write-Verbose 'Invoke-PsTestPost'
-       Convert-PsTestToTableFormat    
-    }
-}
-#>
+Write-Verbose 'Imported Module PSTest'

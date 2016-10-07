@@ -230,7 +230,7 @@ function New-WinEC2Instance
             # Windows_Server-2012-RTM-English-64Bit-Base
         [string]$AmiId,
         [string]$KeyPairName = $WinEC2Defaults.DefaultKeypair,
-        [string]$SecurityGroupName = $WinEC2Defaults.DefaultSecurityGroup,
+        [string[]]$SecurityGroupName = $WinEC2Defaults.DefaultSecurityGroup,
         [string]$Region,
         [string]$Password = $null, # if the password is already baked in the image, specify the password
         [string]$NewPassword = $null, # change the passowrd to this new value
@@ -245,7 +245,25 @@ function New-WinEC2Instance
         [string]$Placement_AvailabilityZone = $null,
         [string]$AdditionalInfo,
         [string]$IamRoleName, # InstanceProfile_Id
-        [int]$Timeout = 900
+        [int]$Timeout = 500,
+        [switch]$IgnorePing,
+        [int]$Port=80,
+        [int]$InstanceCount=1,
+        [switch]$Linux,
+        [switch]$SSMHeartBeat,
+        [string]$UserData = @"
+<powershell>
+Enable-NetFirewallRule FPS-ICMP4-ERQ-In
+Set-NetFirewallRule -Name WINRM-HTTP-In-TCP-PUBLIC -RemoteAddress Any
+New-NetFirewallRule -Name "WinRM80" -DisplayName "WinRM80" -Protocol TCP -LocalPort 80
+Set-Item WSMan:\localhost\Service\EnableCompatibilityHttpListener -Value true
+#Set-Item (dir wsman:\localhost\Listener\*\Port -Recurse).pspath 80 -Force
+$(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
+  else {"Rename-Computer -NewName '$Name';Restart-Computer" }
+)
+</powershell>
+"@
+
         )
 
     trap { break } #This stops execution on any exception
@@ -284,24 +302,13 @@ function New-WinEC2Instance
         $imageid = $a.ImageId
         $imagename = $a.Name
         Write-Verbose "imageid=$imageid, imagename=$imagename"
+
         #Launch the instance
-        $userdata = @"
-<powershell>
-Enable-NetFirewallRule FPS-ICMP4-ERQ-In
-Set-NetFirewallRule -Name WINRM-HTTP-In-TCP-PUBLIC -RemoteAddress Any
-New-NetFirewallRule -Name "WinRM80" -DisplayName "WinRM80" -Protocol TCP -LocalPort 80
-Set-Item WSMan:\localhost\Service\EnableCompatibilityHttpListener -Value true
-#Set-Item (dir wsman:\localhost\Listener\*\Port -Recurse).pspath 80 -Force
-$(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
-  else {"Rename-Computer -NewName '$Name';Restart-Computer" }
-)
-</powershell>
-"@
         $userdataBase64Encoded = [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($userdata))
         $parameters = @{
             ImageId = $imageid
-            MinCount = 1
-            MaxCount = 1
+            MinCount = $InstanceCount
+            MaxCount = $InstanceCount
             AssociatePublicIp = $true
             InstanceType = $InstanceType
             KeyName = $KeyPairName
@@ -352,7 +359,8 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
             $parameters.'EbsOptimized' = $True
         }
         $Mapping = New-Object Amazon.EC2.Model.BlockDeviceMapping
-        $Mapping.DeviceName = '/dev/sda1'
+        #$Mapping.DeviceName = '/dev/sda1'
+        $Mapping.DeviceName = $a.RootDeviceName
         $Mapping.Ebs = $Volume
         $parameters.'BlockDeviceMapping' = $Mapping
 
@@ -365,6 +373,7 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
         $a = New-EC2Instance @parameters
         $instance = $a.Instances[0]
 
+        $time = @{}
         #$awscred = (Get-AWSCredentials -StoredCredentials 'AWS PS Default').GetCredentials()
         #$ec2clinet = New-Object Amazon.EC2.AmazonEC2Client($awscred.AccessKey,$awscred.SecretKey,$DefaultRegionEndpoint)
         #$resp = $ec2clinet.RunInstances($parameters)
@@ -381,67 +390,75 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
 
         $cmd = { $(Get-EC2Instance -Filter @{Name = "instance-id"; Values = $instanceid}).Instances[0].State.Name -eq "Running" }
         $a = Invoke-PSUtilWait $cmd "New-WinEC2Instance - running state" $Timeout
-        $runningTime = Get-Date
+        $time.'Running' = (Get-Date) - $startTime
+        Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to running state' -f ($time.Running))
         
         #Wait for ping to succeed
         $a = Get-EC2Instance -Filter @{Name = "instance-id"; Values = $instanceid}
         $PublicIpAddress = $a.Instances[0].PublicIpAddress
 
-        $cmd = { ping $PublicIpAddress; $LASTEXITCODE -eq 0}
-        $a = Invoke-PSUtilWait $cmd "New-WinEC2Instance - ping" $Timeout
-        $pingTime = Get-Date
-
-        #Wait until the password is available
-        if (-not $Password)
-        {
-            $cmd = {Get-EC2PasswordData -InstanceId $instanceid -PemFile $keyfile -Decrypt}
-            $Password = Invoke-PSUtilWait $cmd "New-WinEC2Instance - retreive password" $Timeout
+        if (-not $IgnorePing) {
+            $cmd = { ping $PublicIpAddress; $LASTEXITCODE -eq 0}
+            $a = Invoke-PSUtilWait $cmd "New-WinEC2Instance - ping" $Timeout
+            $time.'Ping' = (Get-Date) - $startTime
+            Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to ping to succeed' -f ($time.Ping))
         }
 
-        Write-Verbose "$Password $PublicIpAddress"
-
-        $securepassword = ConvertTo-SecureString $Password -AsPlainText -Force
-        $creds = New-Object System.Management.Automation.PSCredential ("Administrator", $securepassword)
-        $passwordTime = Get-Date
-
-        $cmd = {New-PSSession $PublicIpAddress -Credential $creds -Port 80}
-        $s = Invoke-PSUtilWait $cmd "New-WinEC2Instance - remote connection" $Timeout
-
-        if ($NewPassword)
-        {
-            #Change password
-            $cmd = { param($password)	
-                        $admin=[adsi]("WinNT://$env:computername/administrator, user")
-                        $admin.psbase.invoke('SetPassword', $password) }
-        
-            try
+        if (-not $Linux) {
+            #Wait until the password is available
+            if (-not $Password)
             {
-                $null = Invoke-Command -Session $s $cmd -ArgumentList $NewPassword 2>$null
+                $cmd = {Get-EC2PasswordData -InstanceId $instanceid -PemFile $keyfile -Decrypt}
+                $Password = Invoke-PSUtilWait $cmd "New-WinEC2Instance - retreive password" $Timeout
+                $time.'Password' = (Get-Date) - $startTime
+                Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to retreive password' -f ($time.Password))
             }
-            catch # sometime it gives access denied error. ok to mask this error, the next connect will fail if there is an issue.
-            {
-            }
-            Write-Verbose 'Completed setting the new password.'
-            Remove-PSSession $s
-            $securepassword = ConvertTo-SecureString $NewPassword -AsPlainText -Force
+
+            Write-Verbose "$Password $PublicIpAddress"
+
+            $securepassword = ConvertTo-SecureString $Password -AsPlainText -Force
             $creds = New-Object System.Management.Automation.PSCredential ("Administrator", $securepassword)
-            $s = New-PSSession $PublicIpAddress -Credential $creds -Port 80
-            Write-Verbose 'Test connection established using new password.'
+
+            $cmd = {New-PSSession $PublicIpAddress -Credential $creds -Port $Port}
+            $s = Invoke-PSUtilWait $cmd "New-WinEC2Instance - remote connection" $Timeout
+
+            if ($NewPassword)
+            {
+                #Change password
+                $cmd = { param($password)	
+                            $admin=[adsi]("WinNT://$env:computername/administrator, user")
+                            $admin.psbase.invoke('SetPassword', $password) }
+        
+                try
+                {
+                    $null = Invoke-Command -Session $s $cmd -ArgumentList $NewPassword 2>$null
+                }
+                catch # sometime it gives access denied error. ok to mask this error, the next connect will fail if there is an issue.
+                {
+                }
+                Write-Verbose 'Completed setting the new password.'
+                Remove-PSSession $s
+                $securepassword = ConvertTo-SecureString $NewPassword -AsPlainText -Force
+                $creds = New-Object System.Management.Automation.PSCredential ("Administrator", $securepassword)
+                $s = New-PSSession $PublicIpAddress -Credential $creds -Port $Port
+                Write-Verbose 'Test connection established using new password.'
+            }
+            Remove-PSSession $s
+            $time.'Remote' = (Get-Date) - $startTime
+            Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to establish remote connection' -f ($time.Remote))
         }
-        Remove-PSSession $s
-        $remoteTime = Get-Date
+
+        if ($SSMHeartBeat) {
+            $cmd = { 
+                $count = (Get-SSMInstanceInformation -InstanceInformationFilterList @{ Key='InstanceIds'; ValueSet=$instanceid}).Count
+                $count -eq $InstanceCount
+            }
+            $null = Invoke-PSUtilWait $cmd 'Instance Registration' $Timeout
+            $time.'SSMHeartBeat' = (Get-Date) - $startTime
+            Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - for SSM Heart Beat' -f ($time.SSMHeartBeat))
+        }
 
         $wininstancce = Get-WinEC2Instance $instanceid
-        $time = @{
-            Running = $runningTime - $startTime
-            Ping = $pingTime - $startTime
-            Password = $passwordTime - $startTime
-            Remote = $remoteTime - $startTime
-        }
-        Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to running state' -f ($time.Running))
-        Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to ping to succeed' -f ($time.Ping))
-        Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to retreive password' -f ($time.Password))
-        Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to establish remote connection' -f ($time.Remote))
 
         $wininstancce | Add-Member -NotePropertyName 'Time' -NotePropertyValue $time
         $wininstancce
@@ -452,7 +469,7 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
         if ($instanceid -ne $null -and (-not $DontCleanUp))
         {
             Write-Verbose "Terminate InstanceId=$instanceid"
-            $null = Stop-EC2Instance -Instance $instanceid -Force -Terminate
+            $null = Remove-EC2Instance -Instance $instanceid -Force
         }
         throw $_.Exception
     }
@@ -473,7 +490,7 @@ function Remove-WinEC2Instance (
     $instances = findInstance -nameOrInstanceIds $NameOrInstanceIds -DesiredState $DesiredState 
     foreach ($instance in $instances)
     {
-        $a = Stop-EC2Instance -Instance $instance.InstanceId -Force -Terminate
+        $a = Remove-EC2Instance -Instance $instance.InstanceId -Force
 
         if (!$NoWait)
         {
@@ -520,6 +537,7 @@ function Start-WinEC2Instance (
         [System.Management.Automation.PSCredential][Parameter(Position=2)]$Credential,
         [switch]$IsReachabilityCheck,
         [int]$WaitTime = 600,
+        [int]$Port = 80,
         [Parameter(Position=3)]$Region
     )
 {
@@ -560,7 +578,7 @@ function Start-WinEC2Instance (
         $cmd = { ping  $PublicIpAddress; $LASTEXITCODE -eq 0}
         $a = Invoke-PSUtilWait $cmd "Start-WinEC2Instance - ping" $WaitTime
 
-        $cmd = {New-PSSession $PublicIpAddress @parameters -Port 80}
+        $cmd = {New-PSSession $PublicIpAddress @parameters -Port $Port}
         $s = Invoke-PSUtilWait $cmd "Start-WinEC2Instance - Remote connection" $WaitTime
         Remove-PSSession $s
 
@@ -578,6 +596,7 @@ function ReStart-WinEC2Instance (
         [Parameter (Position=1, Mandatory=$true)]$NameOrInstanceIds,
         [System.Management.Automation.PSCredential][Parameter(Position=2)]$Credential,
         [switch]$IsReachabilityCheck,
+        [int]$Port = 80,
         [Parameter(Position=3)]$Region
     )
 {
@@ -610,7 +629,7 @@ function ReStart-WinEC2Instance (
         $a = Invoke-PSUtilWait $cmd "ReStart-WinEC2Instance - ping to succeed" 450
 
         #wait for remote PS connection to establish
-        $cmd = {New-PSSession $PublicIpAddress @parameters -Port 80}
+        $cmd = {New-PSSession $PublicIpAddress @parameters -Port $Port}
         $s = Invoke-PSUtilWait $cmd "ReStart-WinEC2Instance - Remote connection" 300
         Remove-PSSession $s
         
@@ -626,6 +645,8 @@ function Invoke-WinEC2Command (
         [Parameter (Position=1, Mandatory=$true)][string]$NameOrInstanceIds,
         [Parameter(Position=2, Mandatory=$true)][ScriptBlock]$sb,
         [Parameter(Position=3)][PSCredential]$Credential,
+        [Object[]]$ArguementList,
+        [int]$Port=80,
         [Parameter(Position=4)][string]$Region
     )
 {
@@ -646,7 +667,7 @@ function Invoke-WinEC2Command (
             $secpasswd = ConvertTo-SecureString $data.Password -AsPlainText -Force
             $parameters.'Credential' = New-Object System.Management.Automation.PSCredential ("Administrator", $secpasswd)
         }
-        Invoke-Command -ComputerName $instance.PublicIpAddress -Port 80 -ScriptBlock $sb @parameters
+        Invoke-Command -ComputerName $instance.PublicIpAddress -Port $Port -ScriptBlock $sb @parameters -ArgumentList $ArguementList
     }
 }
 
@@ -1080,3 +1101,5 @@ Set-Alias rwin Remove-WinEC2Instance
 Set-Alias icmwin Invoke-WinEC2Command
 
 Export-ModuleMember -Alias * -Function * -Cmdlet * -Verbose:$false
+
+Write-Verbose 'Imported Module WinEC2'

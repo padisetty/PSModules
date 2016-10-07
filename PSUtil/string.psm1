@@ -29,3 +29,5 @@ function Convertto-PS ([Parameter(Mandatory=$true)]$obj,
         $obj.ToString()
     }
 }
+
+Write-Verbose 'Imported Module PSUtil'

@@ -5,6 +5,7 @@ $host.ui.RawUI.WindowTitle = $Name
 
 if (! (Test-PSTestExecuting)) {
     Import-Module -Global PSTest -Force -Verbose:$false
+    . "$PSScriptRoot\Common Setup.ps1"
 
     Remove-Item $PSScriptRoot\output\* -ea 0 -Force -Recurse
     md $PSScriptRoot\output -ea 0
@@ -13,12 +14,28 @@ if (! (Test-PSTestExecuting)) {
 
 Write-Verbose 'Executing Run'
 
-$InputParameters = @{Param1='Run All1'}
+$InputParameterSets = @(
+        @{Param1='Param1-Value1'
+        numerator=1
+        denominator=1
+        },
+        @{Param1='Param1-Value2'
+        numerator=1
+        denominator=0
+        }
+        )
 $tests = @(
     "$PSScriptRoot\Test1.ps1"
     "$PSScriptRoot\Test2.ps1"
+    "$PSScriptRoot\Test Fail.ps1"
 )
-Invoke-PsTest -Test $tests -InputParameters $InputParameters  -Count 2
+
+function OnError()
+{
+    Write-Verbose 'Executing OnError'
+}
+
+Invoke-PsTest -Test $tests -InputParameters $InputParameterSets  -Count 1 -OnError 'OnError'
 
 gstat
 
