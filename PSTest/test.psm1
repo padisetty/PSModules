@@ -311,10 +311,12 @@ function PsTestLaunchWrapper ([string]$FileName, [string]$Name) {
     trap { break } #This stops execution on any exception
     $ErrorActionPreference = 'Stop'
 
-    "Executing $FileName"
+    Write-Host "Executing $FileName" -ForegroundColor Yellow
     & $FileName $Name
     $_depth--
-    exit
+    gstat
+    if (-not (gfail)) { Stop-Process -Id $pid }
+   # exit
 }
 
 function Invoke-PsTestLaunchInParallel (
