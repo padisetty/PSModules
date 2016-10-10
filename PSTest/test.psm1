@@ -243,9 +243,10 @@ function runTest (
     {
         $startTime = Get-Date
 
-        Write-PSUtilLog "<<<< BEGIN '$TestName' ($Index of $Count)"
+        Write-PSUtilLog "**BEGIN '$TestName' ($_LogFileName)" -color Yellow
         runFunction $Test
         $obj."$TestName.Result" = 'Completed Successfully'
+        Write-PSUtilLog $obj."$TestName.Result" -color Green
     }
     catch
     {
@@ -257,11 +258,11 @@ function runTest (
 
         $message = "$($ex.Message) ($script, Line #$line)" 
         $obj."$TestName.Result" = $message
-        Write-PSUtilLog "Failed Message=$message"
+        Write-PSUtilLog "<<<<<< Failed Message=$message" -color Red
         if ($obj.Message.Length -eq 0) {
             $obj.Message = $message
         }
-
+        
         if ($onError.Length -eq 0)
         {
             Write-PSUtilLog 'OnError Dump'
@@ -277,10 +278,11 @@ function runTest (
 
         if ($StopOnError)
         {
+            logStat $(Get-PSUtilStringFromObject $obj)
             throw $ex
         }
     }
-    Write-PSUtilLog ">>>> END '$TestName' Result=($($obj."$TestName.Result")) ($Index of $Count)`n"
+    Write-PSUtilLog "END '$TestName' ($_LogFileName)`n"
 }
 
 function Invoke-PsTestRandomLoop (
@@ -306,14 +308,14 @@ function Invoke-PsTestRandomLoop (
 }
 
 function PsTestLaunchWrapper ([string]$FileName, [string]$Name) {
-    $_depth++
-    $VerbosePreference = 'Continue'
+    #$_depth++
+    $global:VerbosePreference = 'Continue'
     trap { break } #This stops execution on any exception
     $ErrorActionPreference = 'Stop'
 
     Write-Host "Executing $FileName" -ForegroundColor Yellow
-    & $FileName $Name
-    $_depth--
+    . $FileName $Name
+    #$_depth--
     gstat
     if (-not (gfail)) { Stop-Process -Id $pid }
    # exit

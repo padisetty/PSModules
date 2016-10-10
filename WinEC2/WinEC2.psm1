@@ -706,7 +706,7 @@ function Get-WinEC2Password (
     $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
     Write-Verbose "Get-WinEC2Password - NameOrInstanceId=$NameOrInstanceId, Region=$Region"
 
-    $instances = findInstance $NameOrInstanceId -desiredState 'running'
+    $instances = findInstance $NameOrInstanceId
     foreach ($instance in $instances)
     {
         $data = New-Object 'PSObject'
@@ -753,23 +753,25 @@ function New-WinEC2KeyPair (
     trap { break }
     $ErrorActionPreference = 'Stop'
     $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
-    $keyfile = "$($WinEC2Defaults.DefaultKeypairFolder)\$Region.$KeyPairName.pem"
-    Write-Verbose "New-WinEC2KeyPair - Keyfile=$keyfile"
 
-    if (!(Test-Path $WinEC2Defaults.DefaultKeypairFolder -PathType Container))
-    {
-        throw "The folder $($WinEC2Defaults.DefaultKeypairFolder) to save pem files does not exist"
+    $KeyFile="$($WinEC2Defaults.DefaultKeypairFolder)\$KeyPairName"
+
+    if (Get-EC2KeyPair  | ? { $_.KeyName -eq $KeyPairName }) { 
+        Write-Verbose "Skipping as keypair ($KeyPairName) already present." 
+        return
     }
 
-    if (Test-Path $keyfile -PathType Leaf)
-    {
-        throw "New-WinEC2KeyPair - $keyfile already exists"
+    if (Test-Path "$KeyFile.pub") {
+        $publicKeyMaterial = cat "$KeyFile.pub" -Raw
+        $encodedPublicKeyMaterial = [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($publicKeyMaterial))
+        Import-EC2KeyPair -KeyPairName $KeyPairName -PublicKeyMaterial $encodedPublicKeyMaterial
+        Write-Verbose "Importing KeyPairName=$KeyPairName, keyfile=$KeyFile"
+    } else {
+        Write-Verbose "Creating KeyPairName=$KeyPairName, keyfile=$KeyFile"
+        $keypair = New-EC2KeyPair -KeyName $KeyPairName
+        "$($keypair.KeyMaterial)" | Out-File -encoding ascii -filepath "$KeyFile.pem"
+        "$($keypair.KeyFingerprint)" | Out-File -encoding ascii -filepath "$KeyFile.fingerprint"
     }
-
-    $keypair= New-EC2KeyPair -KeyName $KeyPairName
-    "$($keypair.KeyMaterial)" | out-file -encoding ascii -filepath $keyfile
-    "KeyName: $($keypair.KeyName)" | out-file -encoding ascii -filepath $keyfile -Append
-    "KeyFingerprint: $($keypair.KeyFingerprint)" | out-file -encoding ascii -filepath $keyfile -Append
 }
 
 function Remove-WinEC2KeyPair (
@@ -780,13 +782,7 @@ function Remove-WinEC2KeyPair (
     trap { break }
     $ErrorActionPreference = 'Stop'
     $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
-    $keyfile = "$($WinEC2Defaults.DefaultKeypairFolder)\$Region.$KeyPairName.pem"
-    Write-Verbose "Remove-WinEC2KeyPair - Keyfile=$keyfile"
-
-    if (Test-Path $keyfile -PathType Leaf)
-    {
-        Remove-Item $keyfile -Force
-    }
+    Write-Verbose "Remove-WinEC2KeyPair - KeyPairName=$KeyPairName"
 
     if (Get-EC2KeyPair -KeyNames $KeyPairName)
     {
@@ -821,7 +817,7 @@ function Get-WinEC2KeyPair (
         $obj | Add-Member -MemberType NoteProperty -Name 'PemFile' -Value 'NOT Found'
         $obj | Add-Member -MemberType NoteProperty -Name 'KeyFingerprint' -Value $key.KeyFingerprint
 
-        $file = "$($WinEC2Defaults.DefaultKeypairFolder)\$Region.$($key.KeyName).pem"
+        $file = "$($WinEC2Defaults.DefaultKeypairFolder)\$($key.KeyName).pem"
         if (Test-Path $file)
         {
             $obj.PemFile = $file
@@ -836,32 +832,15 @@ function Get-WinEC2KeyPair (
         }
         $obj
     }
-   
-    $keyNames = $keys.KeyName
-    foreach ($file in Get-ChildItem "$($WinEC2Defaults.DefaultKeypairFolder)\$Region.*.pem")
-    {
-        $name = $file.BaseName.Substring($Region.Length+1)
-        if (!$keyNames.Contains($name))
-        {
-            $obj = New-Object PSObject
-            $obj | Add-Member -MemberType NoteProperty -Name 'KeyName' -Value 'NOT Found'
-            $obj | Add-Member -MemberType NoteProperty -Name 'Status' -Value 'Bad'
-            $obj | Add-Member -MemberType NoteProperty -Name 'PemFile' -Value $file.FullName
-            $obj | Add-Member -MemberType NoteProperty -Name 'KeyFingerprint' -Value 'Invalid'
-            $obj
-        }
-    }
 }
 
 
 function Get-WinEC2KeyFile (
-        [string][Parameter (Position=1)]$KeyPairName = $WinEC2Defaults.DefaultKeypair,
-        [string]$Region
+        [string][Parameter (Position=1)]$KeyPairName = $WinEC2Defaults.DefaultKeypair
     )
 {
     trap { break }
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
-    $keyfile = "$($WinEC2Defaults.DefaultKeypairFolder)\$Region.$KeyPairName.pem"
+    $keyfile = "$($WinEC2Defaults.DefaultKeypairFolder)\$KeyPairName.pem"
     Write-Verbose "Test-WinEC2KeyPair - Keyfile=$keyfile"
 
     if (-not (Test-Path $keyfile -PathType Leaf))
@@ -872,7 +851,7 @@ function Get-WinEC2KeyFile (
     if (-not (Get-EC2KeyPair -KeyNames $KeyPairName))
     {
         $keyfile = $null
-        throw "Test-WinEC2KeyPair - KeyPair with name=$KeyPairName not found in Region=$Region"
+        throw "Test-WinEC2KeyPair - KeyPair with name=$KeyPairName not found in Folder=$($WinEC2Defaults.DefaultKeypairFolder)"
     }
 
     $keyfile
@@ -956,7 +935,7 @@ function Update-WinEC2FireWallSource
         }
         if (! $found) {
             Grant-EC2SecurityGroupIngress -GroupId $securityGroupId -IpPermissions $SourceIPRange
-            Write-Verbose "Granted permissions for ports 80 to 5986, for IP=($SourceIPRange.IpRanges)"
+            Write-Verbose "Granted permissions for $($SourceIPRange.IpProtocol) ports $($SourceIPRange.FromPort) to $($SourceIPRange.ToPort), IP=($SourceIPRange.IpRanges[0])"
         }
     }
 }
@@ -1095,6 +1074,7 @@ function Update-WinEC2FireWallSourceOld
     Write-Verbose "Update-WinEC2FireWallSource - Updated $SecurityGroupName"
 }
 
+Set-Alias gwin Get-WinEC2Instance
 Set-Alias cwin Connect-WinEC2Instance
 Set-Alias nwin New-WinEC2Instance
 Set-Alias rwin Remove-WinEC2Instance

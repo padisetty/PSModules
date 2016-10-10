@@ -3,7 +3,7 @@
 echo $Name
 $host.ui.RawUI.WindowTitle = $Name
 
-if (! (Test-PSTestExecuting)) {
+if ($Name.Length -eq 0) {
     Import-Module -Global PSTest -Force -Verbose:$false
     . "$PSScriptRoot\Common Setup.ps1"
 

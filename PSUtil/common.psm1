@@ -55,8 +55,9 @@ function Invoke-PSUtilRetryOnError ($scriptBlock, $retryCount = 3)
 # Retry the scriptblock $cmd until no error and return true
 function Invoke-PSUtilWait ([ScriptBlock] $Cmd, 
                [string] $Message, 
-               [int] $RetrySeconds,
-               [int] $SleepTimeInMilliSeconds = 5000)
+               [int] $RetrySeconds = 300,
+               [int] $SleepTimeInMilliSeconds = 5000,
+               [switch] $PrintAllErrors)
 {
     $_wait_activity = "Waiting for $Message to succeed"
     $_wait_t1 = Get-Date
@@ -68,6 +69,7 @@ function Invoke-PSUtilWait ([ScriptBlock] $Cmd,
         {
             $_wait_success = $false
             $_wait_result = & $cmd 2>$null | select -Last 1 
+
             if ($? -and $_wait_result)
             {
                 $_wait_success = $true
@@ -75,6 +77,9 @@ function Invoke-PSUtilWait ([ScriptBlock] $Cmd,
         }
         catch
         {
+            if ($PrintAllErrors) {
+                Write-Verbose $_.Exception.Message
+            }
         }
         $_wait_t2 = Get-Date
         if ($_wait_success)
