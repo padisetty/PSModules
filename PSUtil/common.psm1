@@ -57,11 +57,12 @@ function Invoke-PSUtilWait ([ScriptBlock] $Cmd,
                [string] $Message, 
                [int] $RetrySeconds = 300,
                [int] $SleepTimeInMilliSeconds = 5000,
-               [switch] $PrintAllErrors)
+               [switch] $PrintVerbose)
 {
     $_wait_activity = "Waiting for $Message to succeed"
     $_wait_t1 = Get-Date
     $_wait_timeout = $false
+    $_wait_seconds = 0
     Write-Verbose "Wait for $Message to succeed in $RetrySeconds seconds"
     while ($true)
     {
@@ -74,11 +75,14 @@ function Invoke-PSUtilWait ([ScriptBlock] $Cmd,
             {
                 $_wait_success = $true
             }
+            if ($PrintVerbose) {
+                Write-Verbose "result=$_wait_result ($_wait_seconds/$RetrySeconds)"
+            }
         }
         catch
         {
-            if ($PrintAllErrors) {
-                Write-Verbose $_.Exception.Message
+            if ($PrintVerbose) {
+                Write-Verbose "$($_.Exception.Message) ($_wait_seconds/$RetrySeconds)"
             }
         }
         $_wait_t2 = Get-Date
