@@ -370,8 +370,7 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
         }
 
         $startTime = Get-Date
-        $a = New-EC2Instance @parameters
-        $instance = $a.Instances[0]
+        $instances = (New-EC2Instance @parameters).Instances
 
         $time = @{}
         #$awscred = (Get-AWSCredentials -StoredCredentials 'AWS PS Default').GetCredentials()
@@ -380,85 +379,85 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
         #$instance = $resp.RunInstancesResult.Reservation.Instances[0]
         #$ec2clinet = $null
 
-        $instanceid = $instance.InstanceId
-        Write-Verbose "instanceid=$instanceid"
+        Write-Verbose "instanceid=$($instances.InstanceId)"
 
         if ($Name)
         {
-            Invoke-PSUtilRetryOnError {New-EC2Tag -ResourceId $instanceid -Tag @{Key='Name'; Value=$Name}}
+            Invoke-PSUtilRetryOnError {New-EC2Tag -ResourceId $instances.InstanceId -Tag @{Key='Name'; Value=$Name}}
         }
 
-        $cmd = { $(Get-EC2Instance -Filter @{Name = "instance-id"; Values = $instanceid}).Instances[0].State.Name -eq "Running" }
-        $a = Invoke-PSUtilWait $cmd "New-WinEC2Instance - running state" $Timeout
-        $time.'Running' = (Get-Date) - $startTime
-        Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to running state' -f ($time.Running))
+        foreach ($instance in $instances) {
+            $instanceId = $instance.InstanceId
+            Write-Verbose "InstanceId=$instanceId"
+
+
+            $cmd = { $(Get-EC2Instance -Filter @{Name = "instance-id"; Values = $instanceid}).Instances[0].State.Name -eq "Running" }
+            $a = Invoke-PSUtilWait $cmd "New-WinEC2Instance - running state" $Timeout
+            $time.'Running' = (Get-Date) - $startTime
+            Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to running state' -f ($time.Running))
         
-        #Wait for ping to succeed
-        $a = Get-EC2Instance -Filter @{Name = "instance-id"; Values = $instanceid}
-        $PublicIpAddress = $a.Instances[0].PublicIpAddress
+            #Wait for ping to succeed
+            $a = Get-EC2Instance -Filter @{Name = "instance-id"; Values = $instanceid}
+            $PublicIpAddress = $a.Instances[0].PublicIpAddress
 
-        if (-not $IgnorePing) {
-            $cmd = { ping $PublicIpAddress; $LASTEXITCODE -eq 0}
-            $a = Invoke-PSUtilWait $cmd "New-WinEC2Instance - ping" $Timeout
-            $time.'Ping' = (Get-Date) - $startTime
-            Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to ping to succeed' -f ($time.Ping))
-        }
-
-        if (-not $Linux) {
-            #Wait until the password is available
-            if (-not $Password)
-            {
-                $cmd = {Get-EC2PasswordData -InstanceId $instanceid -PemFile $keyfile -Decrypt}
-                $Password = Invoke-PSUtilWait $cmd "New-WinEC2Instance - retreive password" $Timeout
-                $time.'Password' = (Get-Date) - $startTime
-                Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to retreive password' -f ($time.Password))
+            if (-not $IgnorePing) {
+                $cmd = { ping $PublicIpAddress; $LASTEXITCODE -eq 0}
+                $a = Invoke-PSUtilWait $cmd "New-WinEC2Instance - ping" $Timeout
+                $time.'Ping' = (Get-Date) - $startTime
+                Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to ping to succeed' -f ($time.Ping))
             }
 
-            Write-Verbose "$Password $PublicIpAddress"
-
-            $securepassword = ConvertTo-SecureString $Password -AsPlainText -Force
-            $creds = New-Object System.Management.Automation.PSCredential ("Administrator", $securepassword)
-
-            $cmd = {New-PSSession $PublicIpAddress -Credential $creds -Port $Port}
-            $s = Invoke-PSUtilWait $cmd "New-WinEC2Instance - remote connection" $Timeout
-
-            if ($NewPassword)
-            {
-                #Change password
-                $cmd = { param($password)	
-                            $admin=[adsi]("WinNT://$env:computername/administrator, user")
-                            $admin.psbase.invoke('SetPassword', $password) }
-        
-                try
+            if (-not $Linux) {
+                #Wait until the password is available
+                if (-not $Password)
                 {
-                    $null = Invoke-Command -Session $s $cmd -ArgumentList $NewPassword 2>$null
+                    $cmd = {Get-EC2PasswordData -InstanceId $instanceid -PemFile $keyfile -Decrypt}
+                    $Password = Invoke-PSUtilWait $cmd "New-WinEC2Instance - retreive password" $Timeout
+                    $time.'Password' = (Get-Date) - $startTime
+                    Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to retreive password' -f ($time.Password))
                 }
-                catch # sometime it gives access denied error. ok to mask this error, the next connect will fail if there is an issue.
-                {
-                }
-                Write-Verbose 'Completed setting the new password.'
-                Remove-PSSession $s
-                $securepassword = ConvertTo-SecureString $NewPassword -AsPlainText -Force
+
+                $securepassword = ConvertTo-SecureString $Password -AsPlainText -Force
                 $creds = New-Object System.Management.Automation.PSCredential ("Administrator", $securepassword)
-                $s = New-PSSession $PublicIpAddress -Credential $creds -Port $Port
-                Write-Verbose 'Test connection established using new password.'
+
+                $cmd = {New-PSSession $PublicIpAddress -Credential $creds -Port $Port}
+                $s = Invoke-PSUtilWait $cmd "New-WinEC2Instance - remote connection" $Timeout
+
+                if ($NewPassword)
+                {
+                    #Change password
+                    $cmd = { param($password)	
+                                $admin=[adsi]("WinNT://$env:computername/administrator, user")
+                                $admin.psbase.invoke('SetPassword', $password) }
+        
+                    try
+                    {
+                        $null = Invoke-Command -Session $s $cmd -ArgumentList $NewPassword 2>$null
+                    }
+                    catch # sometime it gives access denied error. ok to mask this error, the next connect will fail if there is an issue.
+                    {
+                    }
+                    Write-Verbose 'Completed setting the new password.'
+                    Remove-PSSession $s
+                    $securepassword = ConvertTo-SecureString $NewPassword -AsPlainText -Force
+                    $creds = New-Object System.Management.Automation.PSCredential ("Administrator", $securepassword)
+                    $s = New-PSSession $PublicIpAddress -Credential $creds -Port $Port
+                    Write-Verbose 'Test connection established using new password.'
+                }
+                Remove-PSSession $s
+                $time.'Remote' = (Get-Date) - $startTime
+                Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to establish remote connection' -f ($time.Remote))
             }
-            Remove-PSSession $s
-            $time.'Remote' = (Get-Date) - $startTime
-            Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to establish remote connection' -f ($time.Remote))
+
+            if ($SSMHeartBeat) {
+                $cmd = { (Get-SSMInstanceInformation -InstanceInformationFilterList @{ Key='InstanceIds'; ValueSet=$instanceid}).Count -eq 1}
+                $null = Invoke-PSUtilWait $cmd 'Instance Registration' $Timeout
+                $time.'SSMHeartBeat' = (Get-Date) - $startTime
+                Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - for SSM Heart Beat' -f ($time.SSMHeartBeat))
+            }
         }
 
-        if ($SSMHeartBeat) {
-            $cmd = { 
-                $count = (Get-SSMInstanceInformation -InstanceInformationFilterList @{ Key='InstanceIds'; ValueSet=$instanceid}).Count
-                $count -eq $InstanceCount
-            }
-            $null = Invoke-PSUtilWait $cmd 'Instance Registration' $Timeout
-            $time.'SSMHeartBeat' = (Get-Date) - $startTime
-            Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - for SSM Heart Beat' -f ($time.SSMHeartBeat))
-        }
-
-        $wininstancce = Get-WinEC2Instance $instanceid
+        $wininstancce = Get-WinEC2Instance ($instances.InstanceId -join ',')
 
         $wininstancce | Add-Member -NotePropertyName 'Time' -NotePropertyValue $time
         $wininstancce
@@ -664,8 +663,7 @@ function Invoke-WinEC2Command (
             $parameters.'Credential' = $Credential
         } else {
             $data = Get-WinEC2Password $instance.InstanceId
-            $secpasswd = ConvertTo-SecureString $data.Password -AsPlainText -Force
-            $parameters.'Credential' = New-Object System.Management.Automation.PSCredential ("Administrator", $secpasswd)
+            $parameters.'Credential' = $data.Credential
         }
         Invoke-Command -ComputerName $instance.PublicIpAddress -Port $Port -ScriptBlock $sb @parameters -ArgumentList $ArguementList
     }
@@ -698,7 +696,8 @@ function checkSubnet ([string]$cidr, [string]$ip)
 
 function Get-WinEC2Password (
         [Parameter (Position=1)]$NameOrInstanceId = '*',
-        [Parameter(Position=2)][string]$Region
+        [Parameter (Position=2)][Switch]$PlainText,
+        [Parameter(Position=3)][string]$Region
     )
 {
     trap { break }
@@ -717,8 +716,15 @@ function Get-WinEC2Password (
             $data | Add-Member -NotePropertyName 'Name' -NotePropertyValue $wininstance.TagName
         }
         $password = Get-EC2PasswordData -InstanceId $instance.InstanceId -PemFile (Get-WinEC2KeyFile $instance.KeyName) -Decrypt
-        $data | Add-Member -NotePropertyName 'Password' -NotePropertyValue $password
+        $securepassword = ConvertTo-SecureString $password -AsPlainText -Force
+        $credential = New-Object System.Management.Automation.PSCredential ("Administrator", $securepassword)
+        if ($PlainText) {
+            $data | Add-Member -NotePropertyName 'Password' -NotePropertyValue $password
+        }
         $data | Add-Member -NotePropertyName 'PublicIPAddress' -NotePropertyValue $wininstance.PublicIPAddress
+        $data | Add-Member -NotePropertyName 'Credential' -NotePropertyValue $credential
+
+
         $data
     }
 }
