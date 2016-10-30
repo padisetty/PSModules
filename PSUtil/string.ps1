@@ -30,4 +30,37 @@ function Convertto-PS ([Parameter(Mandatory=$true)]$obj,
     }
 }
 
+
+function Get-PSUtilStringFromObject ($obj)
+{
+    $st = ''
+    foreach ($key in $obj.Keys)
+    {
+        if ($obj[$key] -is [Timespan])
+        {
+            $value = '{0:hh\:mm\:ss}' -f $obj."$key"
+        }
+        else
+        {
+            $value = [string]$obj[$key]
+        }
+        if ($st.Length -gt 0)
+        {
+            $st = "$st`t$key=$value"
+        }
+        else
+        {
+            $st = "$key=$value"
+        }
+    }
+    $st
+}
+
+function Get-PSUtilMultiLineStringFromObject ($obj)
+{
+    '  ' + (Get-PSUtilStringFromObject $obj).Replace("`t","`n  ")
+}
+
+
+
 Write-Verbose 'Imported Module PSUtil'

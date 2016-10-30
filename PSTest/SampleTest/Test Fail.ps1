@@ -7,10 +7,6 @@
 
 param ($numerator, $denominator)
 
-if (! (Test-PSTestExecuting)) {
-    Import-Module -Global PSTest -Force -Verbose:$false
-    . "$PSScriptRoot\Common Setup.ps1"
-}
 
 Write-Verbose 'Executing Test Fail (Divide by zero)'
-"Result=$($numerator/$denominator)"
+Write-Verbose "Result=$($numerator/$denominator)"

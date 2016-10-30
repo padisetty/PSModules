@@ -150,7 +150,7 @@ function Invoke-PsTest (
         $set = 0
         foreach ($inputParameterSet in $InputParameterSets) {
             $set++
-            $global:obj = New-Object -TypeName ‘System.Collections.Generic.Dictionary[[String],[Object]]’ -ArgumentList @([System.StringComparer]::CurrentCultureIgnoreCase)
+            $obj = New-Object -TypeName ‘System.Collections.Generic.Dictionary[[String],[Object]]’ -ArgumentList @([System.StringComparer]::CurrentCultureIgnoreCase)
             $obj.Add('Tests', '')
             $obj.Add('Result', '')
             $obj.Add('Message', '')
@@ -200,7 +200,7 @@ function Invoke-PsTest (
                 $obj.Result = 'Success'
             }
             logStat $(Get-PSUtilStringFromObject $obj)
-            gstat
+            gstat 4>$null
             Write-PSUtilLog ''
             Write-PSUtilLog ''
         }
@@ -228,7 +228,11 @@ function runFunction ([string]$functionName) {
             Write-PSUtilLog "    Parameter $paramname=$($parameter.DefaultValue) (Default Value)"
         }
     }
-    & $sb @obj 4>&1 3>&1 5>&1 | extractMetric | Write-PSUtilLog
+    $result = & $sb @obj 4>&1 3>&1 5>&1 | extractMetric
+    if ($result -is [hashtable]) {
+        Write-PSUtilLog "Test Result:" -color Cyan
+        $result.Keys | % { $obj.$_ = $result.$_; Write-PSUtilLog "    $_ = $($result.$_)" -color Cyan}
+    }
 }
 
 function runTest (
@@ -243,10 +247,10 @@ function runTest (
     {
         $startTime = Get-Date
 
-        Write-PSUtilLog "**BEGIN '$TestName' ($_LogFileName)" -color Yellow
+        Write-PSUtilLog "**BEGIN '$TestName' ($_LogFileName)"
         runFunction $Test
         $obj."$TestName.Result" = 'Completed Successfully'
-        Write-PSUtilLog $obj."$TestName.Result" -color Green
+        Write-PSUtilLog $obj."$TestName.Result"
     }
     catch
     {
@@ -471,19 +475,27 @@ function extractMetric ()
     [CmdletBinding()]
     param (
         [parameter(ValueFromPipeline=$true)]
-        [string]$st
+        $st
     )
     PROCESS {
-        if ($st.StartsWith('#PSTEST#')) 
+        if ($st -is [System.Management.Automation.VerboseRecord]) {
+            Write-PSUtilLog $st -color Cyan
+        } elseif ($st -is [System.Management.Automation.WarningRecord]) {
+            Write-PSUtilLog $st -color Magenta
+        } else {
+            $st
+        }
+
+        <# if ($st.StartsWith('#PSTEST#')) 
         { 
             $a = $st.Substring(8).Trim().Split('=')
             $key = ([string]$a[0]).Trim()
             $value = ([string]$a[1]).Trim()
             if ($a.Count -ne 2 -or $key.Length -eq 0 -or $value.Length -eq 0)
             {
+          
                 Write-Error '#PSTEST# invalid format, it has to be of the form #PSTEST# x=y'
-            } else {
-                if ($obj.$key) {
+            } else {      if ($obj.$key) {
                     $obj.$key = $obj.$key + ", " + $value
                 } else {
                     $obj.$key = $value
@@ -491,6 +503,7 @@ function extractMetric ()
             }
         }
         $st
+        #>
     }
 }
 Write-Verbose 'Imported Module PSTest'

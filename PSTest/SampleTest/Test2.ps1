@@ -3,13 +3,9 @@
 #            When running in parallel, name should be unique for each instance
 #            Some thing like 'SampleTest.0', 'SampleTest.1', etc when running in parallel
 
-param ([string]$Param2='Value2')
+param ([string]$InstanceId=$InstanceId)
 
-if (! (Test-PSTestExecuting)) {
-    Import-Module -Global PSTest -Force -Verbose:$false
-    . "$PSScriptRoot\Common Setup.ps1"
-}
 
-Write-Verbose 'Executing Test2'
+Write-Verbose "Executing Test2, InstanceId=$InstanceId"
 
 

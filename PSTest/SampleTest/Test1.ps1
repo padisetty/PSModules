@@ -10,9 +10,7 @@ param ([string]$Param1='Value1')
 
 Write-Verbose 'Executing Test1'
 
-if (! (Test-PSTestExecuting)) {
-    Import-Module -Global PSTest -Force -Verbose:$false
-    . "$PSScriptRoot\Common Setup.ps1"
-}
-$Obj.'Param2' = 'Set from Test1'
+#Output values
+$InstanceId = 'i-SetFromTest1'
+@{'InstanceId' = $InstanceId}
 

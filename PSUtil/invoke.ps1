@@ -1,22 +1,4 @@
-﻿trap { break } #This stops execution on any exception
-$ErrorActionPreference = 'Stop'
-
-function Get-PSUtilDefaultIfNull ($value, $defaultValue)
-{
-    Write-Verbose "Get-PSUtilDefaultIfNull Value=$value, DefaultValue=$defaultValue"
-    if ([string]$value.Length -eq 0)
-    {
-        $defaultValue
-    }
-    else
-    {
-        $value
-    }
-}
-
-#$logfile = Get-PSUtilDefaultIfNull $logfile 'test.log'
-
-function Invoke-PSUtilIgnoreError ($scriptBlock)
+﻿function Invoke-PSUtilIgnoreError ($scriptBlock)
 {
     try
     {
@@ -114,72 +96,6 @@ function Invoke-PSUtilWait ([ScriptBlock] $Cmd,
     }
 }
 
-function Set-PSUtilLogFile ([string]$file, [switch] $delete)
-{
-    Write-Verbose "New log file is '$file'"
-    $script:logfile = $file
-    if ($delete)
-    {
-        del $logfile -ea 0
-    }
-}
-
-function Get-PSUtilLogFile ()
-{
-    return $script:logfile
-}
-
-function Write-PSUtilLog ()
-{
-    [CmdletBinding()]
-    param (
-        [parameter(ValueFromPipeline=$true)]
-        [string]$st,
-        [ConsoleColor]$color = 'White'
-    )
-    PROCESS {
-        if ($st.Length -gt 0)
-        {
-            $message = "$((Get-date).ToLongTimeString()) $st"
-        }
-        else
-        {
-            $message = $st
-        }
-        Write-Host $message -ForegroundColor $color
-        $message >> $logfile
-    }
-}
-
-function Get-PSUtilStringFromObject ($obj)
-{
-    $st = ''
-    foreach ($key in $obj.Keys)
-    {
-        if ($obj[$key] -is [Timespan])
-        {
-            $value = '{0:hh\:mm\:ss}' -f $obj."$key"
-        }
-        else
-        {
-            $value = [string]$obj[$key]
-        }
-        if ($st.Length -gt 0)
-        {
-            $st = "$st`t$key=$value"
-        }
-        else
-        {
-            $st = "$key=$value"
-        }
-    }
-    $st
-}
-
-function Get-PSUtilMultiLineStringFromObject ($obj)
-{
-    '  ' + (Get-PSUtilStringFromObject $obj).Replace("`t","`n  ")
-}
 
 function Invoke-PSUtilSleepWithProgress ([Parameter(Mandatory=$true)][int]$Seconds)
 {
@@ -201,12 +117,4 @@ function Invoke-PSUtilSleepWithProgress ([Parameter(Mandatory=$true)][int]$Secon
     }
     Write-Progress -Activity $activity -Completed
     Write-Verbose "Sleep completed"
-}
-
-function Compress-PSUtilFolder($SourceFolder, $ZipFileName, $IncludeBaseDirectory = $true)
-{
-    del $ZipFileName -ErrorAction 0
-    Add-Type -Assembly System.IO.Compression.FileSystem
-    [System.IO.Compression.ZipFile]::CreateFromDirectory($SourceFolder,
-        $ZipFileName, [System.IO.Compression.CompressionLevel]::Optimal, $IncludeBaseDirectory)
 }
