@@ -312,7 +312,7 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
             AssociatePublicIp = $true
             InstanceType = $InstanceType
             KeyName = $KeyPairName
-            SecurityGroupIds = (Get-EC2SecurityGroup -Filter @{Name='group-name'; Value=$SecurityGroupName}).GroupId
+            #SecurityGroupIds = (Get-EC2SecurityGroup -Filter @{Name='group-name'; Value=$SecurityGroupName}).GroupId
             UserData = $userdataBase64Encoded
             SubnetId = $SubnetId
         }
@@ -341,6 +341,7 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
             }
         }
 
+        #EBS Volume
         $Volume = New-Object Amazon.EC2.Model.EbsBlockDevice
         $Volume.DeleteOnTermination = $True
         if ($VolumeSize -gt 0)
@@ -363,6 +364,15 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
         $Mapping.DeviceName = $a.RootDeviceName
         $Mapping.Ebs = $Volume
         $parameters.'BlockDeviceMapping' = $Mapping
+
+        #Network
+        $interface = New-Object Amazon.EC2.Model.InstanceNetworkInterfaceSpecification
+        $interface.Groups = (Get-EC2SecurityGroup -Filter @{Name='group-name'; Value=$SecurityGroupName}).GroupId
+        $interface.DeleteOnTermination = $true
+        $interface.DeviceIndex = 0
+        $interface.AssociatePublicIpAddress = $true
+        $parameters.'NetworkInterface' = $interface
+
 
         if ($IamRoleName)
         {
