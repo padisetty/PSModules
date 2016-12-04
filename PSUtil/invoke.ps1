@@ -10,7 +10,7 @@
     }
 }
 
-function Invoke-PSUtilRetryOnError ($scriptBlock, $retryCount = 3)
+function Invoke-PSUtilRetryOnError ($ScriptBlock, $RetryCount = 3, $SleepTimeInMilliSeconds = 5000)
 {
     for ($i=1; $i -le $retryCount; $i++)
     {
@@ -28,7 +28,7 @@ function Invoke-PSUtilRetryOnError ($scriptBlock, $retryCount = 3)
             {
                 throw $_.Execption
             }
-            Sleep 10 # wait before retrying
+            Sleep -Milliseconds $SleepTimeInMilliSeconds
         }
     }
 }
@@ -51,7 +51,7 @@ function Invoke-PSUtilWait ([ScriptBlock] $Cmd,
         try
         {
             $_wait_success = $false
-            $_wait_result = & $cmd 2>$null | select -Last 1 
+            $_wait_result = & $cmd 2>$null
 
             if ($? -and $_wait_result)
             {

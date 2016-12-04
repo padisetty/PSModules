@@ -46,7 +46,7 @@ function Get-PSUtilStringFromObject ($obj)
         }
         if ($st.Length -gt 0)
         {
-            $st = "$st`t$key=$value"
+            $st = "$st, $key=$value"
         }
         else
         {

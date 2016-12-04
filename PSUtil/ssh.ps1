@@ -1,7 +1,8 @@
 ﻿trap { break } #This stops execution on any exception
 $ErrorActionPreference = 'Stop'
+ipmo posh-ssh -Verbose:$false
 
-function New-KeyPairs ($Key) {
+function New-PsUtilKeyPairs ($Key) {
     if (Test-Path "$Key.pem") {
         Write-Verbose "Skipping as $Key.pem, already present"
         return
@@ -53,8 +54,22 @@ function Add-SSHKnowHosts ($consolelog, $key, $user, $remote, $port = 22) {
     }
 }
 
-function Invoke-SSHCommand ([string]$Key, [string]$User, [string]$remote, [string]$cmd, [string]$Port = 22) {
+function Invoke-PsUtilSSHCommand ([string]$Key, [string]$User, [string]$remote, [string]$cmd, [string]$Port = 22) {
+    Write-Verbose "ssh -o StrictHostKeyChecking=no -i $key $user@$remote -p $port"
+    Write-Verbose "Invoke-PsUtilSSHCommand -Key $key -User $user -Remote $remote -Port $port"
+    Write-Verbose "Command:`n$cmd"
 
+    $cmd = $cmd.Replace("`r",'')
+
+    $creds = New-Object System.Management.Automation.PSCredential ($User, (new-object System.Security.SecureString))
+    $session = New-SSHSession -ComputerName $remote -KeyFile $key -Port $port -Credential $creds -AcceptKey -Force 3>$null
+    $ret = Invoke-SSHCommand -Command $cmd -SSHSession $session -TimeOut 600
+    $null = Remove-SSHSession $session
+    $ret.Output
+    if ($ret.ExitStatus -ne 0 -or $ret.Error) {
+        throw "ssh error, ExitStatus=$($ret.ExitStatus), Error=$($ret.Error)"
+    }
+<#
     Write-Verbose "ssh -o StrictHostKeyChecking=no -i $key $user@$remote -p $port $cmd"
     
     #ssh -o StrictHostKeyChecking=no -i $key "$user@$remote" -p $port $cmd 
@@ -79,8 +94,8 @@ function Invoke-SSHCommand ([string]$Key, [string]$User, [string]$remote, [strin
     if ($p.ExitCode -ne 0) {
         throw "ssh error: ExitCode=$($p.ExitCode) $stderr"
     }
-
-    return $p.StandardOutput.ReadToEnd()
+    $p.StandardOutput.ReadToEnd()
+    #>
 }
 
 #del C:\Users\padisett\.ssh\known_hosts -ea 0
