@@ -63,8 +63,9 @@ function Invoke-PSUtilWait ([ScriptBlock] $Cmd,
         }
         catch
         {
+            $_wait_result = "Exception: $($_.Exception.Message)"
             if ($PrintVerbose) {
-                Write-Verbose "$($_.Exception.Message) ($_wait_seconds/$RetrySeconds)"
+                Write-Verbose "$_wait_result ($_wait_seconds/$RetrySeconds)"
             }
         }
         $_wait_t2 = Get-Date

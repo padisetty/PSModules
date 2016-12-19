@@ -425,11 +425,13 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
                 if (-not $Password)
                 {
                     $cmd = {Get-EC2PasswordData -InstanceId $instanceid -PemFile $keyfile -Decrypt}
-                    $Password = Invoke-PSUtilWait $cmd "New-WinEC2Instance - retreive password" $Timeout
+                    $generatedPassword = Invoke-PSUtilWait $cmd "New-WinEC2Instance - retreive password" $Timeout
                     $time.'Password' = (Get-Date) - $startTime
                     Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to retreive password' -f ($time.Password))
+                    $securepassword = ConvertTo-SecureString $generatedPassword -AsPlainText -Force
+                } else {
+                    $securepassword = ConvertTo-SecureString $Password -AsPlainText -Force
                 }
-                $securepassword = ConvertTo-SecureString $Password -AsPlainText -Force
                 $creds = New-Object System.Management.Automation.PSCredential ("Administrator", $securepassword)
 
                 $cmd = {New-PSSession $PublicIpAddress -Credential $creds -Port $Port}
@@ -696,7 +698,7 @@ function Invoke-WinEC2Command (
     }
     foreach ($instance in $instances)
     {
-        if ($instance.PlatformName -like 'Windows*') {
+        if ($instance.PlatformName -like '*Windows*') {
             if ($Credential)
             {
                 $parameters.'Credential' = $Credential
@@ -706,6 +708,7 @@ function Invoke-WinEC2Command (
             }
             $sb = {iex $using:Script}
             if ($Port -lt 0) { $Port = 80 }
+            Write-Verbose "Windows: ComputerName=$($instance.PublicIpAddress), Port=$Port, Script=$Script, UserName=$($parameters.'Credential'.UserName)"
             Invoke-Command -ComputerName $instance.PublicIpAddress -Port $Port -ScriptBlock $sb @parameters
         } elseif ($instance.PlatformName -eq 'Ubuntu' -or $instance.PlatformName -like '*Linux*') {
             $keyfile = Get-WinEC2KeyFile $instance.KeyName
@@ -716,6 +719,7 @@ function Invoke-WinEC2Command (
                 $user = 'ec2-user'
             }
             if ($Port -lt 0) { $Port = 22 }
+            Write-Verbose "Linux: Key=$keyfile, User=$user, Remote=$($Instance.PublicIpAddress), Port=$Port, Script=$Script"
             Invoke-PsUtilSSHCommand -key $keyFile -user $user -remote $Instance.PublicIpAddress -port $Port -cmd $Script
         }
 
