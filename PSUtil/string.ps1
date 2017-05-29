@@ -1,6 +1,10 @@
 ﻿trap { break } #This stops execution on any exception
 $ErrorActionPreference = 'Stop'
 
+#Remving this enables to inherit global value
+Remove-Variable PSDefaultParameterValues -Force -ErrorAction Ignore -Scope local
+
+
 function Convertto-PS ([Parameter(Mandatory=$true)]$obj,
               [Parameter(Mandatory=$false)][int]$space=0)
 {

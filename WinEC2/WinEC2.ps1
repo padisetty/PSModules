@@ -39,6 +39,10 @@ Import-Module PSUtil -Force -Global  -Verbose:$false
 trap { break } #This stops execution on any exception
 $ErrorActionPreference = 'Stop'
 
+#Remving this enables to inherit global value
+Remove-Variable PSDefaultParameterValues -Force -ErrorAction Ignore -Scope local
+
+
 $WinEC2Defaults = @{
     }
 

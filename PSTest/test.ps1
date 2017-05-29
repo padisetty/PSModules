@@ -1,6 +1,8 @@
 ﻿Import-Module -Global PSUtil -Force -Verbose:$false
 
 $ResultsFile = 'Results.csv'
+#Remving this enables to inherit global value
+Remove-Variable PSDefaultParameterValues -Force -ErrorAction Ignore -Scope local
 
 function Explode ([Hashtable[]]$parameterSets, 
                   [string]$key,
@@ -228,7 +230,10 @@ function runFunction ([string]$functionName) {
             Write-PSUtilLog "    Parameter $paramname=$($parameter.DefaultValue) (Default Value)"
         }
     }
+
     $result = & $sb @obj 4>&1 3>&1 5>&1 | extractMetric
+    #$result = $sb.InvokeWithContext($null,@(), $p) 4>&1 3>&1 5>&1 | extractMetric
+
     if ($result -is [hashtable]) {
         Write-PSUtilLog "Test Result:" -color Cyan
         $result.Keys | % { $obj.$_ = $result.$_; Write-PSUtilLog "    $_ = $($result.$_)" -color Cyan}

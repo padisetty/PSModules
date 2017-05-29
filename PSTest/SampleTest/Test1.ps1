@@ -8,9 +8,11 @@
 param ([string]$Param1='Value1')
 
 
-Write-Verbose 'Executing Test1'
+Write-Verbose "Executing Test1, Param1=$Param1"
 
 #Output values
 $InstanceId = 'i-SetFromTest1'
-@{'InstanceId' = $InstanceId}
-
+@{
+    'InstanceId' = $InstanceId
+    'Param1' = $Param1
+}
