@@ -35,7 +35,7 @@ function Convertto-PS ([Parameter(Mandatory=$true)]$obj,
 }
 
 
-function Get-PSUtilStringFromObject ($obj)
+function Get-PSUtilStringFromObject ($obj, $splitchar = "`t")
 {
     $st = ''
     foreach ($key in $obj.Keys)
@@ -50,7 +50,7 @@ function Get-PSUtilStringFromObject ($obj)
         }
         if ($st.Length -gt 0)
         {
-            $st = "$st, $key=$value"
+            $st = "$st$splitchar$key=$value"
         }
         else
         {

@@ -35,7 +35,7 @@ function OnError()
     Write-Verbose 'Executing OnError'
 }
 
-Invoke-PsTest -Test $tests -InputParameters $InputParameterSets  -Count 1 -OnError 'OnError'
+Invoke-PsTest -Test $tests -InputParameters $InputParameterSets  -Count 2 -OnError 'OnError'
 
 gstat
 
