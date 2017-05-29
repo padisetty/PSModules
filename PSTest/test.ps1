@@ -267,7 +267,7 @@ function runTest (
 
         $message = "$($ex.Message) ($script, Line #$line)" 
         $obj."$TestName.Result" = $message
-        Write-PSUtilLog "<<<<<< Failed Message=$message" -color Red
+        Write-PSUtilLog "<<<<<< Failed Test=$TestName, Message=$message" -color Red
         if ($obj.Message.Length -eq 0) {
             $obj.Message = $message
         }
@@ -288,7 +288,7 @@ function runTest (
         if ($StopOnError)
         {
             logStat $(Get-PSUtilStringFromObject $obj)
-            throw $ex
+            throw
         }
     }
     Write-PSUtilLog "END '$TestName' ($_LogFileName)`n"

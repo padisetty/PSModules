@@ -88,6 +88,27 @@ function Invoke-PSUtilWait ([ScriptBlock] $Cmd,
     Write-Progress -Activity $_wait_activity -Completed
     if ($_wait_timeout)
     {
+        #wrapper to capture the variables
+        $cmdwrapper = {
+            #Write-Verbose $ExecutionContext.InvokeCommand.ExpandString($cmd.ToString())
+            Write-Verbose "PsUtilWait TimeOut Cmd:$($cmd.ToString().TrimEnd())"
+
+            $save = @{}
+            foreach ($var in (Get-Variable -Scope 0)) {
+                $save."$($var.Name)" = $var.Value
+            }
+
+            Write-Verbose "Return value=$(. $cmd)"
+
+            foreach ($var in (Get-Variable -Scope 0)) {
+                $v = $save."$($var.Name)"
+                if ($v -ne $var.Value -and $var.Name -notin 'foreach','var' ) {
+                    Write-Verbose "    $($var.Name)=$($var.Value)"
+                }
+            }
+        }
+        & $cmdwrapper
+
         Write-Verbose "$Message [$([int]($_wait_t2-$_wait_t1).TotalSeconds) Seconds - Timeout], Current result=$_wait_result"
         throw "Timeout - $Message after $RetrySeconds seconds, Current result=$_wait_result"
     }
