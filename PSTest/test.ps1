@@ -195,9 +195,9 @@ function Invoke-PsTest (
                 }
                 $testnames += $testname
 
+                $obj.'Tests' = $testnames
                 runTest -Test $test -TestName $testname -OnError $OnError -StopOnError:$StopOnError -Index $i -Count $Count
             }
-            $obj.'Tests' = $testnames
             if ($obj.Result.Length -eq 0) {
                 $obj.Result = 'Success'
             }
@@ -288,10 +288,13 @@ function runTest (
         if ($StopOnError)
         {
             logStat $(Get-PSUtilStringFromObject $obj)
+            gstat
+
+            Convert-PsTestToTableFormat    
             throw
         }
     }
-    Write-PSUtilLog "END '$TestName' ($_LogFileName)`n"
+    Write-PSUtilLog "END '$TestName' ($_LogFileName)`n`n"
 }
 
 function Invoke-PsTestRandomLoop (
@@ -484,31 +487,31 @@ function extractMetric ()
     )
     PROCESS {
         if ($st -is [System.Management.Automation.VerboseRecord]) {
+            $st = $st.Message
+            if ($st.StartsWith('#PSTEST#')) 
+            { 
+                $a = $st.Substring(8).Trim().Split('=')
+                $key = ([string]$a[0]).Trim()
+                $value = ([string]$a[1]).Trim()
+                if ($a.Count -ne 2 -or $key.Length -eq 0 -or $value.Length -eq 0)
+                {
+          
+                    Write-Error '#PSTEST# invalid format, it has to be of the form #PSTEST# x=y'
+                } else {      
+                    if ($obj.$key) {
+                        $obj.$key = $obj.$key + ", " + $value
+                    } else {
+                        $obj.$key = $value
+                    }
+                }
+            }
+
             Write-PSUtilLog $st -color Cyan
         } elseif ($st -is [System.Management.Automation.WarningRecord]) {
             Write-PSUtilLog $st -color Magenta
         } else {
             $st
         }
-
-        <# if ($st.StartsWith('#PSTEST#')) 
-        { 
-            $a = $st.Substring(8).Trim().Split('=')
-            $key = ([string]$a[0]).Trim()
-            $value = ([string]$a[1]).Trim()
-            if ($a.Count -ne 2 -or $key.Length -eq 0 -or $value.Length -eq 0)
-            {
-          
-                Write-Error '#PSTEST# invalid format, it has to be of the form #PSTEST# x=y'
-            } else {      if ($obj.$key) {
-                    $obj.$key = $obj.$key + ", " + $value
-                } else {
-                    $obj.$key = $value
-                }
-            }
-        }
-        $st
-        #>
     }
 }
 Write-Verbose 'Imported Module PSTest'

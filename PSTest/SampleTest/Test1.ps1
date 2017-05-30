@@ -11,8 +11,7 @@ param ([string]$Param1='Value1')
 Write-Verbose "Executing Test1, Param1=$Param1"
 
 #Output values
-$InstanceId = 'i-SetFromTest1'
 @{
-    'InstanceId' = $InstanceId
-    'Param1' = $Param1
+    'Test1.Output1' = 'Test1.Output Value1'
+    'Test1.Output2.Param1' = $Param1
 }

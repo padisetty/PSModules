@@ -8,5 +8,12 @@
 param ($numerator, $denominator)
 
 
+Write-Verbose "#PSTEST# Test Fail.Output1=Test Fail.Output Pre Value1"
+Write-Verbose "#PSTEST# foo=bar"
+
 Write-Verbose 'Executing Test Fail (Divide by zero)'
 Write-Verbose "Result=$($numerator/$denominator)"
+
+@{
+    'Test Fail.Output1' = @{ 'x' = 'y'}
+}

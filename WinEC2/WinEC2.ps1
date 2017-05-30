@@ -395,7 +395,7 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
         #$instance = $resp.RunInstancesResult.Reservation.Instances[0]
         #$ec2clinet = $null
 
-        Write-Verbose "instanceid=$($instances.InstanceId)"
+        Write-Verbose "#PSTEST# InstanceIds=$($instances.InstanceId)"
 
         if ($Name)
         {
