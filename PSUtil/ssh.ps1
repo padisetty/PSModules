@@ -66,7 +66,7 @@ function Invoke-PsUtilSSHCommand ([string]$Key, [string]$User, [string]$remote, 
     $ret = Invoke-SSHCommand -Command $cmd -SSHSession $session -TimeOut 600
     $null = Remove-SSHSession $session
     $ret.Output
-    if ($ret.ExitStatus -ne 0 -or $ret.Error) {
+    if ($ret.ExitStatus -ne 0) {
         throw "ssh error, ExitStatus=$($ret.ExitStatus), Error=$($ret.Error)"
     }
 <#

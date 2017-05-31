@@ -17,6 +17,7 @@ $InputParameterSets = @(
     @{Param1='Param1-Value1'
         numerator=1
         denominator=1
+        ParameterSetRepeat=1 # number of times all test should be repeated with this set.
     },
     @{Param1='Param1-Value2'
         numerator=1
@@ -25,8 +26,11 @@ $InputParameterSets = @(
 )
 
 $tests = @(
-    "$PSScriptRoot\Test1.ps1"
-    "$PSScriptRoot\Test2.ps1"
+    @{ 
+        Test = "$PSScriptRoot\Test1.ps1"
+        TestRepeat = 1
+        Output = @('InstanceId') 
+    }
     "$PSScriptRoot\Test Fail.ps1"
 )
 
@@ -35,7 +39,7 @@ function OnError()
     Write-Verbose 'Executing OnError'
 }
 
-Invoke-PsTest -Test $tests -InputParameters $InputParameterSets  -Count 2 -OnError 'OnError' -StopOnError
+Invoke-PsTest -Test $tests -InputParameters $InputParameterSets  -OuterRepeat 2 -OnError 'OnError' -StopOnError
 
 gstat
 

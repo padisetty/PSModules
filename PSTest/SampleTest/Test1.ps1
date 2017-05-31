@@ -9,9 +9,9 @@ param ([string]$Param1='Value1')
 
 
 Write-Verbose "Executing Test1, Param1=$Param1"
-
+sleep -Milliseconds 1
 #Output values
 @{
-    'Test1.Output1' = 'Test1.Output Value1'
-    'Test1.Output2.Param1' = $Param1
+    'InstanceId' = $Param1
+    'HBTime' = '1:04'
 }
