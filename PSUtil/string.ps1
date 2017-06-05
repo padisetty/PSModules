@@ -5,10 +5,12 @@ $ErrorActionPreference = 'Stop'
 Remove-Variable PSDefaultParameterValues -Force -ErrorAction Ignore -Scope local
 
 
-function Convertto-PS ([Parameter(Mandatory=$true)]$obj,
+function Convertto-PS ($obj,
               [Parameter(Mandatory=$false)][int]$space=0)
 {
-    if ($obj -is [Hashtable]) {
+    if ($obj -eq $null) {
+        '$null'
+    } elseif ($obj.Keys) {
         $sb = New-Object System.Text.StringBuilder
         $null = $sb.AppendLine('@{')
             foreach ($key in $obj.Keys) {
@@ -29,6 +31,8 @@ function Convertto-PS ([Parameter(Mandatory=$true)]$obj,
         return $sb.ToString()
     } elseif ($obj -is [String]) {
         "'$obj'"
+    } elseif ($obj -is [Boolean] -or $obj -is [System.Management.Automation.SwitchParameter]) {
+        '$' + $obj.ToString()
     } else {
         $obj.ToString()
     }
