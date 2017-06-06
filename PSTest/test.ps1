@@ -4,194 +4,42 @@ $ResultsFile = 'Results.csv'
 #Remving this enables to inherit global value
 Remove-Variable PSDefaultParameterValues -Force -ErrorAction Ignore -Scope local
 
-function Explode ([Hashtable[]]$parameterSets, 
-                  [string]$key,
-                  [object[]]$values)
-{
-    [Hashtable[]] $results = @()
-
-    foreach ($parameterSet in $parameterSets)
-    {
-        foreach ($value in $values)
-        {
-            [Hashtable]$tempParameterSet = $parameterSet.Clone()
-            $tempParameterSet.Add($key, $value)
-            $results += $tempParameterSet
-        }
-    }
-    $results
-}
-
-function Get-PsTestStatistics ([string]$logfile = $ResultsFile)
-{
-    Write-Verbose "Get-PsTestStatistics (gstat) Log File=$logfile"
-    try
-    {
-        [int]$success = ((cat $logfile | Select-String 'Result=Success').Line | measure -Line).Lines
-        [int]$fail = ((cat $logfile | Select-String 'Result=Fail').Line | measure -Line).Lines
-        if ($success+$fail -gt 0)
-        {
-            $percent = [decimal]::Round(100*$success/($success+$fail))
-        }
-        else
-        {
-            $percent = 0
-        }
-        "Test Summary so far: Success=$success, Fail=$fail percent success=$percent%"
-    }
-    catch
-    {
-        Write-Warning "$logfile not found."
-    }
-}
-
-function Get-PsTestFailedResults ([string]$Filter, [string]$ResultsFileName = $ResultsFile, [switch]$OutputInSingleLine)
-{
-   Get-PsTestResults 'Result=Fail' $filter $ResultsFileName -OutputInSingleLine:$OutputInSingleLine
-}
-
-function Get-PsTestPassedResults ([string]$Filter, [string]$ResultsFileName = $ResultsFile, [switch]$OutputInSingleLine)
-{
-   Get-PsTestResults 'Result=Success' $filter $ResultsFileName -OutputInSingleLine:$OutputInSingleLine
-}
-
-function Get-PsTestResults ([string]$Filter1, [string]$Filter2, 
-                       [string]$ResultsFileName = $ResultsFile, [switch]$OutputInSingleLine)
-{
-    if (Test-Path $ResultsFileName)
-    {
-        if ($OutputInSingleLine)
-        {
-            cat $ResultsFileName | ? {$_ -like "*$Filter1*"} | ? {$_ -like "*$Filter2"}
-        }
-        else
-        {
-            cat $ResultsFileName | ? {$_ -like "*$Filter1*"} | ? {$_ -like "*$Filter2"} | % {$_.Replace("`t","`r`n    ")}
-        }
-    }
-    else
-    {
-        Write-Warning "$ResultsFileName not found"
-    }
-}
-
-function Convert-PsTestToTableFormat ($inputFile = '')
-{
-    if ($inputFile.Length -eq 0) {
-        $inputFile = $ResultsFile
-    }
-    
-    if (! (Test-Path $inputFile -PathType Leaf)) {
-        Write-Error "Input file not found, file=$inputFile"
-    }
-
-    $finfo = Get-Item $inputFile
-    $outFile = $inputFile.Replace($finfo.Extension, '.output' + $finfo.Extension)
-    Write-Verbose "Input file=$inputFile"
-    Write-Verbose "Output file=$outFile"
-
-    $labels =  @()
-    foreach ($line in (cat $inputFile))
-    {
-        $parts = $line.Split("`t")
-        foreach ($part in $parts)
-        {
-            $kv = $part.Split('=')
-            if (!$labels.Contains($kv[0]))
-            {
-                $labels += $kv[0]
-            }
-        }
-    }
-    
-    $st = ''
-    foreach ($label in $labels)
-    {
-        $st += "$label`t"
-    }
-    $st > $outFile
-    foreach ($line in (cat $inputFile))
-    {
-        $row = @{}
-
-        $parts = $line.Split("`t")
-        foreach ($part in $parts)
-        {
-            $kv = $part.Split('=')
-            $row.Add($kv[0], $kv[1])
-        }
-
-        $st = ''
-        foreach ($label in $labels)
-        {
-            $st += "$($row[$label])`t"
-        }
-        $st >> $outFile
-    }
-}
-
-
-function Test-PSTestExecuting ()
-{
-    return $_depth -gt 0
-}
 
 $_depth = 0
 function Invoke-PsTest (
     $Tests, 
-    [Hashtable[]]$InputParameterSets = @{},
-    [String]$OnError, 
-    [switch]$StopOnError,
-    [string]$LogNamePrefix = 'PSTest',
-    [int]$OuterRepeat = 1
+    [Hashtable[]]$ParameterSets = @{},
+    [Hashtable]$CommonParameters = @{},
+    [string]$LogNamePrefix = 'PsTest'
     )
 {
     $_depth++
-    $_LogFileName = "$LogNamePrefix.log"
-    Set-PSUtilLogFile $_LogFileName
+    Set-PSUtilLogFile "$LogNamePrefix.log"
 
-    for ($i=1; $i -le $OuterRepeat; $i++) {
-        
-        $set = 0
-        foreach ($inputParameterSet in $InputParameterSets) {
-            $set++
-            $obj = New-Object -TypeName ‘System.Collections.Generic.Dictionary[[String],[Object]]’ -ArgumentList @([System.StringComparer]::CurrentCultureIgnoreCase)
-            $obj.OuterRepeat = "$i of $OuterRepeat"
-            $obj.ParameterSet = "#$set"
-            $obj.OnError = $OnError
-            $obj.StopOnError = $StopOnError
+    $set = 0
+    foreach ($parameterSet in $ParameterSets) {
+        $set++
+        $obj = New-Object -TypeName ‘System.Collections.Generic.Dictionary[[String],[Object]]’ -ArgumentList @([System.StringComparer]::CurrentCultureIgnoreCase)
+        copyKeys -dest $obj -source $CommonParameters
+        copyKeys -dest $obj -source $parameterSet
+        $obj.PsTestParameterSet = "#$set"
+        if (! $obj.PsTestParameterSetRepeat) { 
+            $obj.PsTestParameterSetRepeat = 1
+        }
 
-            if ($inputParameterSet.ContainsKey('ParameterSetRepeat')) {
-                $parameterSetRepeat = $inputParameterSet.ParameterSetRepeat
-            } else {
-                $parameterSetRepeat = 1
+        $parameterSetRepeat = $obj.PsTestParameterSetRepeat
+        for ($j=1; $j -le $parameterSetRepeat; $j++) {
+            $obj.PsTestParameterSetRepeat = "$j of $parameterSetRepeat"
+
+            if ($parameterSetRepeat -gt 1 -or $ParameterSets.Count -gt 1) {
+                logObject -message "Input Parameters (ParameterSet #$set, ParameterSetRepeat=$j)" -obj $parameterSet
+                Write-PSUtilLog ''
             }
-            for ($j=1; $j -le $parameterSetRepeat; $j++) {
-                $inputParameterSet.Keys | % { $obj.$_ = $inputParameterSet.$_ }
-
-                if ($parameterSetRepeat -gt 1 -or $InputParameterSets.Count -gt 1) {
-                    Write-PSUtilLog "Parameter Repeat:#$j"
-                    Write-PSUtilLog '-----------------'
-                    Write-PSUtilLog 'Inputs:'
-                    foreach ($inputparameter in $inputParameterSet.Keys) {
-                        Write-PSUtilLog "    $inputparameter=$($inputParameterSet[$inputparameter])"
-                    }
-                    Write-PSUtilLog ''
-                }
-                if ($Tests -is [Array]) {
-                    Write-PSUtilLog 'Tests:'
-                    foreach ($test in $Tests) {
-                        Write-PSUtilLog "    $(getTestName($test))"
-                    }
-                    Write-PSUtilLog ''
-                }
-                foreach ($test in $Tests) {
-                    if ($test.ParallelCount -gt 1) {
-                        runParallelTest -Test $test  -obj $obj -LogNamePrefix $LogNamePrefix 
-                    } else {
-                        $obj.ParameterSetRepeat = "$j of $parameterSetRepeat"
-                        runTest -Test $test -obj $obj
-                    }
+            foreach ($test in $Tests) {
+                if ($test.PsTestParallelCount -gt 1) {
+                    runParallelTest -Test $test  -obj $obj -LogNamePrefix $LogNamePrefix 
+                } else {
+                    runTest -Test $test -obj $obj
                 }
             }
         }
@@ -206,70 +54,88 @@ function runParallelTest (
 {
     $testName = getTestName($Test)
     $ps = @()
-    for ($i = 0; $i -lt $Test.ParallelCount; $i++) {
+    for ($i = 1; $i -le $Test.PsTestParallelCount; $i++) {
         $file = "$LogNamePrefix.$testName.$i"
 
         "`$obj = $(Convertto-PS $obj)" > "$file.ps1"
-        "`$obj.ParameterSetRepeat = 1" >> "$file.ps1"
 
         "`$test = $(Convertto-PS $Test)" >> "$file.ps1"
-        "`$test.ParallelCount = 1" >> "$file.ps1"
-        "`$test.OutputObjectFile = '$file.out.ps1'" >> "$file.ps1"
+        "`$test.PsTestOutputObjectFile = '$file.out.ps1'" >> "$file.ps1"
         
-        "Invoke-psTest `$test -InputParameterSets `$obj -LogNamePrefix '$file'" >> "$file.ps1"
+        "runTest -test `$test -obj `$obj -LogNamePrefix '$file'" >> "$file.ps1"
 
-        #"ConvertTo-PS `$obj > '$file.out.ps1'" >> "$file.ps1"
-        'if (-not (gfail) -and -! $Test.DisableAutoShellExit) { Stop-Process -Id $pid }' >> "$file.ps1"
+        'if (-not (gfail) -and -! $Test.PsTestDisableAutoShellExit) { Stop-Process -Id $pid }' >> "$file.ps1"
 
         $ps += Start-Process -FilePath "$PSHOME\powershell.exe" -PassThru -ArgumentList @('-NoExit', '-NoProfile', "-command . '.\$file.ps1'")
         Write-PSUtilLog "Started $file"
     }
 
-    for ($i = 0; $i -lt $ps.Count; $i++) {
+    for ($i = 1; $i -le $ps.Count; $i++) {
         $file = "$LogNamePrefix.$testName.$i"
         Write-PSUtilLog "Waiting for $file to complete"
-        $ps[$i].WaitForExit()
-        Write-PSUtilLog "Completed $file ExitCode=$($ps[$i].ExitCode)"
+        $ps[$i-1].WaitForExit()
+        Write-PSUtilLog "Completed $file ExitCode=$($ps[$i-1].ExitCode)"
         cat "$file.log" >> "$LogNamePrefix.log"
         if (Test-Path "$file.out.ps1") {
-            $newobj = cat "$file.out.ps1" -Raw | Invoke-Expression
-            copyOutputKeys -OutputKeys $Test.OutputKeys -obj $obj -newobj $newobj
+            $newobjs = cat "$file.out.ps1" -Raw | Invoke-Expression
+            foreach ($newobj in $newobjs) {
+
+                #to order the results, a new object is created.
+                $tempobj = newTestObject -obj $newobj
+                $tempobj.PsTestParallelCount = "#$i"
+                logResult $tempobj
+
+                copyKeys -dest $obj -source $newobj -keys $Test.PsTestOutputKeys -append $true 
+            }
         }
         del "$file.log","$file.out.ps1","$file.ps1" -Force -EA:0
     }
 }
 
 function runTest (
-    $Test, 
-    $obj)
+    $test, 
+    $obj, 
+    [string]$LogNamePrefix)
 {
+    if ($LogNamePrefix.Length -gt 0) {
+        Set-PSUtilLogFile "$LogNamePrefix.log"
+    }
+
     $sb, $parameters, $testname, $testRepeat = getExecutionContext($Test)
 
     for ($i = 1; $i -le $testRepeat; $i++) {
         $newobj = cloneTestObject $obj $Test
-        $newobj.TestRepeat = "$i of $testRepeat"
+        $newobj.PsTestRepeat = "$i of $testRepeat"
         Write-PSUtilLog ''
-        Write-PSUtilLog "**BEGIN '$TestName' ($_LogFileName)"
+        Write-PSUtilLog "**BEGIN '$TestName' ($i of $testRepeat)"
     
         logObject 'Before State' $newobj
 
         $startTime = Get-Date
         $ret = runFunction $sb $parameters $newobj
-        $newobj.ExecutionTime = ((Get-Date) - $startTime).ToString()
+        $newobj.PsTestExecutionTime = ((Get-Date) - $startTime).ToString()
 
         if ($ret) {
-            $newobj.Result = 'Success'
+            $newobj.PsTestResult = 'Success'
         } elseif ($newobj.OnError.Length -gt 0) {
-            $sb, $parameters, $null = getExecutionContext($onError)
+            $sb, $parameters, $null = getExecutionContext($newobj.OnError)
             $null = runFunction $sb $parameters $newobj
         }
 
-        logResult $newobj
+        if ($test.PsTestOutputObjectFile) {
+            if ($i -eq 1) {
+                Convertto-PS $newobj > $test.PsTestOutputObjectFile
+            } else {
+                Convertto-PS $newobj >> $test.PsTestOutputObjectFile
+            }
+        } else {
+            logResult $newobj
+        }
         logObject 'After State' $newobj
 
-        Write-PSUtilLog "END '$testName' ($_LogFileName)`r`n`r`n"
+        Write-PSUtilLog "END '$testName'`r`n`r`n"
 
-        if ($newobj.StopOnError -and $newobj.Result -ne 'Success')
+        if ($newobj.PsTestStopOnError -and $newobj.PsTestResult -ne 'Success')
         {
             gstat
 
@@ -277,14 +143,7 @@ function runTest (
             throw "$TestName`:$($newobj.Message)"
         }
 
-        copyOutputKeys -OutputKeys $Test.OutputKeys -obj $obj -newobj $newobj
-
-        logObject 'newobj' $newobj
-        logObject 'obj' $obj
-        logObject 'test' $test
-    }
-    if ($test.OutputObjectFile) {
-        Convertto-PS $obj > $test.OutputObjectFile
+        copyKeys -dest $obj -source $newobj -keys $Test.PsTestOutputKeys -append $true
     }
 }
 
@@ -293,7 +152,6 @@ function runFunction ($sb, $parameters, $obj) {
     {
         $paramname = $parameter.Name.VariablePath.UserPath
         if ($obj.ContainsKey($paramname)) {
-            #$obj[$paramname] = $InputParameters[$paramname]
             Write-PSUtilLog "    Parameter $paramname=$($obj[$paramname]) (Overritten)"
         } else {
             Write-PSUtilLog "    Parameter $paramname=$($parameter.DefaultValue) (Default Value)"
@@ -305,12 +163,12 @@ function runFunction ($sb, $parameters, $obj) {
         #$result = $sb.InvokeWithContext($null,@(), $p) 4>&1 3>&1 5>&1 | extractMetric
 
         if ($result -is [hashtable]) {
-            Write-PSUtilLog "Return Value:" -color Cyan
-            $result.Keys | % { $obj.$_ = $result.$_; Write-PSUtilLog "    $_ = $($result.$_)" -color Cyan}
+            logObject -message 'Return Value' -obj $result
+            copyKeys -dest $obj -source $result
         }
         $ret = $true
     } catch {
-        $obj.Result = 'Fail'
+        $obj.PsTestResult = 'Fail'
 
         $ex = $_.Exception
         $line = $_.InvocationInfo.ScriptLineNumber
@@ -319,27 +177,27 @@ function runFunction ($sb, $parameters, $obj) {
 
         Write-PSUtilLog $message -color Red
 
-        if ($obj.Message.Length -eq 0) {
-            $obj.Message = $message
+        if ($obj.PsTestMessage.Length -eq 0) {
+            $obj.PsTestMessage = $message
         }
         $ret = $false        
     }
     $ret
 }
 
-function copyOutputKeys ([string[]]$OutputKeys, $obj, $newobj) {
-    foreach ($k in $OutputKeys) {
-        if ($obj.$k.Length -gt 0) {
-            $obj.$k += ", $($newobj.$k)"
+function copyKeys ($dest, $source, $keys = $source.Keys, $append = $false) {
+    foreach ($k in $keys) {
+        if ($append -and $obj.$k.Length -gt 0) {
+            $dest.$k += ", $($source.$k)"
         } else {
-            $obj.$k = $newobj.$k
+            $dest.$k = $source.$k
         }
     }
 }
 
 function getTestName ($Test) {
     if ($Test -is [hashtable]) {
-        $t = $Test.Test
+        $t = $Test.PsTest
     } else {
         $t = $Test
     }
@@ -354,10 +212,11 @@ function getTestName ($Test) {
 
 function getExecutionContext ($Test) {
     if ($Test -is [hashtable]) {
-        $t = $Test.Test
-        $testRepeat = $Test.TestRepeat
+        $t = $Test.PsTest
+        $testRepeat = $Test.PsTestRepeat
     } else {
         $t = $Test
+        $testRepeat = 1
     }
 
     if (! $testRepeat -or $testRepeat -lt 0) {
@@ -377,23 +236,31 @@ function getExecutionContext ($Test) {
     return $sb, $parameters, $testname, $testRepeat
 }
 
+function newTestObject ($obj = $null) {
+    $newobj = New-Object -TypeName ‘System.Collections.Generic.Dictionary[[String],[Object]]’ -ArgumentList @([System.StringComparer]::CurrentCultureIgnoreCase)
+    $newobj.Add('PsTestParameterSet', '')
+    $newobj.Add('PsTestParameterSetRepeat', 1)
+    $newobj.Add('PsTest', '')
+    $newobj.Add('PsTestParallelCount', '')
+    $newobj.Add('PsTestRepeat', '')
+    $newobj.Add('PsTestResult', '')
+    $newobj.Add('PsTestMessage', '')
+    $newobj.Add('PsTestExecutionTime', '')
+
+    if ($obj) {
+        copyKeys -dest $newobj -source $obj 
+    }
+    return $newobj
+}
+
 function cloneTestObject ($obj, $test) {
 
-    $newobj = New-Object -TypeName ‘System.Collections.Generic.Dictionary[[String],[Object]]’ -ArgumentList @([System.StringComparer]::CurrentCultureIgnoreCase)
-    $newobj.Add('OuterRepeat', '')
-    $newobj.Add('ParameterSet', '')
-    $newobj.Add('ParameterSetRepeat', '')
-    $newobj.Add('TestRepeat', '')
-    $newobj.Add('Test', '')
-    $newobj.Add('Result', '')
-    $newobj.Add('Message', '')
-    $newobj.Add('ExecutionTime', '')
+    $newobj = newTestObject $obj
 
-    $obj.Keys | % { $newobj.$_ = $obj.$_ }
     if ($test -is [hashtable]) {
-        $test.Keys | % { $newobj.$_ = $test.$_ }
+        copyKeys -dest $newobj -source $test
     } else {
-        $newobj.Test = $test
+        $newobj.PsTest = $test
     }
 
     $newobj
@@ -402,7 +269,7 @@ function cloneTestObject ($obj, $test) {
 function Invoke-PsTestRandomLoop (
     [String[]]$Tests, 
     [String]$OnError, 
-    [Hashtable]$InputParameters,
+    [Hashtable]$Parameters,
     [switch]$StopOnError,
     [string]$LogNamePrefix = 'Random',
     [int]$Count = 1
@@ -412,11 +279,11 @@ function Invoke-PsTestRandomLoop (
     {
         $obj = @{}
 
-        foreach ($key in $InputParameters.keys)
+        foreach ($key in $Parameters.keys)
         {
-            $obj.$key = randomPick $InputParameters.$key
+            $obj.$key = randomPick $Parameters.$key
         }
-        Invoke-PSTest -Tests $Tests -OnError $OnError -InputParameters $obj `
+        Invoke-PsTest -Tests $Tests -OnError $OnError -Parameters $obj `
                         -StopOnError $StopOnError -Count 1 -LogNamePrefix "$($LogNamePrefix)Combo #$i-"
     }
 }
@@ -540,6 +407,138 @@ $script
 }
 
 
+function Explode ([Hashtable[]]$parameterSets, 
+                  [string]$key,
+                  [object[]]$values)
+{
+    [Hashtable[]] $results = @()
+
+    foreach ($parameterSet in $parameterSets)
+    {
+        foreach ($value in $values)
+        {
+            [Hashtable]$tempParameterSet = $parameterSet.Clone()
+            $tempParameterSet.Add($key, $value)
+            $results += $tempParameterSet
+        }
+    }
+    $results
+}
+
+function Get-PsTestStatistics ([string]$logfile = $ResultsFile)
+{
+    Write-Verbose "Get-PsTestStatistics (gstat) Log File=$logfile"
+    try
+    {
+        [int]$success = ((cat $logfile | Select-String 'PsTestResult=Success').Line | measure -Line).Lines
+        [int]$fail = ((cat $logfile | Select-String 'PsTestResult=Fail').Line | measure -Line).Lines
+        if ($success+$fail -gt 0)
+        {
+            $percent = [decimal]::Round(100*$success/($success+$fail))
+        }
+        else
+        {
+            $percent = 0
+        }
+        "Test Summary so far: Success=$success, Fail=$fail percent success=$percent%"
+    }
+    catch
+    {
+        Write-Warning "$logfile not found."
+    }
+}
+
+function Get-PsTestFailedResults ([string]$Filter, [string]$ResultsFileName = $ResultsFile, [switch]$OutputInSingleLine)
+{
+   Get-PsTestResults 'PsTestResult=Fail' $filter $ResultsFileName -OutputInSingleLine:$OutputInSingleLine
+}
+
+function Get-PsTestPassedResults ([string]$Filter, [string]$ResultsFileName = $ResultsFile, [switch]$OutputInSingleLine)
+{
+   Get-PsTestResults 'PsTestResult=Success' $filter $ResultsFileName -OutputInSingleLine:$OutputInSingleLine
+}
+
+function Get-PsTestResults ([string]$Filter1, [string]$Filter2, 
+                       [string]$ResultsFileName = $ResultsFile, [switch]$OutputInSingleLine)
+{
+    if (Test-Path $ResultsFileName)
+    {
+        if ($OutputInSingleLine)
+        {
+            cat $ResultsFileName | ? {$_ -like "*$Filter1*"} | ? {$_ -like "*$Filter2"}
+        }
+        else
+        {
+            cat $ResultsFileName | ? {$_ -like "*$Filter1*"} | ? {$_ -like "*$Filter2"} | % {$_.Replace("`t","`r`n    ")}
+        }
+    }
+    else
+    {
+        Write-Warning "$ResultsFileName not found"
+    }
+}
+
+function Convert-PsTestToTableFormat ($inputFile = '')
+{
+    if ($inputFile.Length -eq 0) {
+        $inputFile = $ResultsFile
+    }
+    
+    if (! (Test-Path $inputFile -PathType Leaf)) {
+        Write-Error "Input file not found, file=$inputFile"
+    }
+
+    $finfo = Get-Item $inputFile
+    $outFile = $inputFile.Replace($finfo.Extension, '.output' + $finfo.Extension)
+    Write-Verbose "Input file=$inputFile"
+    Write-Verbose "Output file=$outFile"
+
+    $labels =  @()
+    foreach ($line in (cat $inputFile))
+    {
+        $parts = $line.Split("`t")
+        foreach ($part in $parts)
+        {
+            $kv = $part.Split('=')
+            if (!$labels.Contains($kv[0]))
+            {
+                $labels += $kv[0]
+            }
+        }
+    }
+    
+    $st = ''
+    foreach ($label in $labels)
+    {
+        $st += "$label`t"
+    }
+    $st > $outFile
+    foreach ($line in (cat $inputFile))
+    {
+        $row = @{}
+
+        $parts = $line.Split("`t")
+        foreach ($part in $parts)
+        {
+            $kv = $part.Split('=')
+            $row.Add($kv[0], $kv[1])
+        }
+
+        $st = ''
+        foreach ($label in $labels)
+        {
+            $st += "$($row[$label])`t"
+        }
+        $st >> $outFile
+    }
+}
+
+
+function Test-PsTestExecuting ()
+{
+    return $_depth -gt 0
+}
+
 New-Alias -Name gstat -Value Get-PsTestStatistics -EA 0
 New-Alias -Name gfail -Value Get-PsTestFailedResults -EA 0
 New-Alias -Name gpass -Value Get-PsTestPassedResults -EA 0
@@ -551,7 +550,7 @@ function logResult ($obj,
 )
 {
     $skipkeys = @{}
-    @('OnError', 'StopOnError', 'ParallelCount', 'DisableAutoShellExit', 'OutputKeys', 'OutputObjectFile') | % { $skipkeys.$_ = ''}
+    @('PsTestOnError', 'PsTestStopOnError', 'PsTestDisableAutoShellExit', 'PsTestOutputKeys', 'PsTestOutputObjectFile') | % { $skipkeys.$_ = ''}
     
     $newobj = New-Object -TypeName ‘System.Collections.Generic.Dictionary[[String],[Object]]’ -ArgumentList @([System.StringComparer]::CurrentCultureIgnoreCase)
     
@@ -560,7 +559,7 @@ function logResult ($obj,
     $skipkeys.Keys | % { if ($obj.ContainsKey($_)) { $keyorder += $_ } }
 
     $keyorder | % { $newobj.$_ = $obj.$_ }
-    $newobj.Test = getTestName($newobj.Test)
+    $newobj.PsTest = getTestName($newobj.PsTest)
 
     $st = Get-PSUtilStringFromObject $newobj
     Invoke-PSUtilRetryOnError {$st >> $ResultsFile} -RetryCount 5 -SleepTimeInMilliSeconds 10
@@ -613,7 +612,7 @@ function extractMetric ()
     PROCESS {
         if ($st -is [System.Management.Automation.VerboseRecord]) {
             $st = $st.Message
-            if ($st.StartsWith('#PSTEST#')) 
+            if ($st.StartsWith('#PsTest#')) 
             { 
                 $a = $st.Substring(8).Trim().Split('=')
                 $key = ([string]$a[0]).Trim()
@@ -621,7 +620,7 @@ function extractMetric ()
                 if ($a.Count -ne 2 -or $key.Length -eq 0 -or $value.Length -eq 0)
                 {
           
-                    Write-Error '#PSTEST# invalid format, it has to be of the form #PSTEST# x=y'
+                    Write-Error '#PsTest# invalid format, it has to be of the form #PsTest# x=y'
                 } else {      
                     if ($obj.$key) {
                         $obj.$key = $obj.$key + ", " + $value
@@ -639,4 +638,4 @@ function extractMetric ()
         }
     }
 }
-Write-Verbose 'Imported Module PSTest'
+Write-Verbose 'Imported Module PsTest'

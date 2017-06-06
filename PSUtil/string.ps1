@@ -29,13 +29,24 @@ function Convertto-PS ($obj,
         }
         $null = $sb.Append(')')
         return $sb.ToString()
+    } elseif ($obj -is [Boolean] -or $obj -is [System.Management.Automation.SwitchParameter]) {
+        '$' + $obj.ToString()
+    } elseif ($obj -is [System.ValueType]) {
+        "[$($obj.GetType())]'$($obj.ToString())'"
+    } else {
+        "'$obj'"
+    } 
+
+<#
     } elseif ($obj -is [String]) {
         "'$obj'"
     } elseif ($obj -is [Boolean] -or $obj -is [System.Management.Automation.SwitchParameter]) {
         '$' + $obj.ToString()
     } else {
         $obj.ToString()
-    }
+    } 
+    
+    #>
 }
 
 

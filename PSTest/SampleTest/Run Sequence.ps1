@@ -14,11 +14,11 @@ if ($Name.Length -eq 0) {
 
 Write-Verbose 'Executing Run'
 
-$InputParameterSets = @(
+$ParameterSets = @(
   @{Param1='Param1-Value1'
         numerator=1
         denominator=1
-        ParameterSetRepeat=1 # number of times all test should be repeated with this set.
+        PsTestParameterSetRepeat=2 # number of times all test should be repeated with this set.
     },
     @{Param1='Param1-Value2'
         numerator=1
@@ -28,11 +28,11 @@ $InputParameterSets = @(
 
 $tests = @(
     @{ 
-        Test = "..\Test1.ps1"
-        ParallelCount = 2
-        TestRepeat = 3
-        DisableAutoShellExit = $false
-        OutputKeys = @('InstanceId') 
+        PsTest = "..\Test1.ps1"
+        PsTestParallelCount = 2
+        PsTestRepeat = 3
+        PsTestDisableAutoShellExit = $false
+        PsTestOutputKeys = @('InstanceId') 
     }
     "..\Test Fail.ps1"
 )
@@ -42,7 +42,13 @@ function OnError()
     Write-Verbose 'Executing OnError'
 }
 
-Invoke-PsTest -Test $tests -InputParameters $InputParameterSets  -OuterRepeat 1 -OnError 'OnError' 
+$commonParameters = @{
+    PsTestOnError='OnError'
+    PsTestParameterSetRepeat=1
+    PsTestStopOnError=$false
+}
+
+Invoke-PsTest -Test $tests -ParameterSets $ParameterSets  -CommonParameters $commonParameters
 
 gstat
 
