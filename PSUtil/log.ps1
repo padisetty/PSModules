@@ -1,16 +1,16 @@
 ﻿function Set-PSUtilLogFile ([string]$file, [switch] $delete)
 {
     Write-Verbose "New log file is '$file'"
-    $script:logfile = $file
+    $global:_PsUtilLogFile = $file
     if ($delete)
     {
-        del $logfile -ea 0
+        del $_PsUtilLogFile -ea 0
     }
 }
 
 function Get-PSUtilLogFile ()
 {
-    return $script:logfile
+    return $_PsUtilLogFile
 }
 
 function Write-PSUtilLog ()
@@ -31,6 +31,6 @@ function Write-PSUtilLog ()
             $message = $st
         }
         Write-Host $message -ForegroundColor $color
-        $message >> $logfile
+        $message >> $_PsUtilLogFile
     }
 }

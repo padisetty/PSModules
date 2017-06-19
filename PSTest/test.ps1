@@ -19,16 +19,16 @@ function Invoke-PsTest (
     $set = 0
     foreach ($parameterSet in $ParameterSets) {
         $set++
-        $obj = New-Object -TypeName ‘System.Collections.Generic.Dictionary[[String],[Object]]’ -ArgumentList @([System.StringComparer]::CurrentCultureIgnoreCase)
-        copyKeys -dest $obj -source $CommonParameters
-        copyKeys -dest $obj -source $parameterSet
-        $obj.PsTestParameterSet = "#$set"
-        if (! $obj.PsTestParameterSetRepeat) { 
-            $obj.PsTestParameterSetRepeat = 1
+        $parameterSetRepeat = 1
+        if ($parameterSet.PsTestParameterSetRepeat) { 
+            $parameterSetRepeat = $parameterSet.PsTestParameterSetRepeat
         }
 
-        $parameterSetRepeat = $obj.PsTestParameterSetRepeat
         for ($j=1; $j -le $parameterSetRepeat; $j++) {
+            $obj = New-Object -TypeName ‘System.Collections.Generic.Dictionary[[String],[Object]]’ -ArgumentList @([System.StringComparer]::CurrentCultureIgnoreCase)
+            copyKeys -dest $obj -source $CommonParameters
+            copyKeys -dest $obj -source $parameterSet
+            $obj.PsTestParameterSet = "#$set"
             $obj.PsTestParameterSetRepeat = "$j of $parameterSetRepeat"
 
             if ($parameterSetRepeat -gt 1 -or $ParameterSets.Count -gt 1) {
@@ -60,13 +60,16 @@ function runParallelTest (
         "`$obj = $(Convertto-PS $obj)" > "$file.ps1"
 
         "`$test = $(Convertto-PS $Test)" >> "$file.ps1"
+        "`$test.ParallelIndex = $i" >> "$file.ps1"
         "`$test.PsTestOutputObjectFile = '$file.out.ps1'" >> "$file.ps1"
         
         "runTest -test `$test -obj `$obj -LogNamePrefix '$file'" >> "$file.ps1"
 
         'if (-not (gfail) -and -! $Test.PsTestDisableAutoShellExit) { Stop-Process -Id $pid }' >> "$file.ps1"
 
-        $ps += Start-Process -FilePath "$PSHOME\powershell.exe" -PassThru -ArgumentList @('-NoExit', '-NoProfile', "-command . '.\$file.ps1'")
+        $process = Start-Process -FilePath "$PSHOME\powershell.exe" -PassThru -ArgumentList @('-NoExit', '-NoProfile', "-command . '.\$file.ps1'")
+        $process.PriorityClass = 'BelowNormal'
+        $ps += $process
         Write-PSUtilLog "Started $file"
     }
 
@@ -82,7 +85,8 @@ function runParallelTest (
 
                 #to order the results, a new object is created.
                 $tempobj = newTestObject -obj $newobj
-                $tempobj.PsTestParallelCount = "#$i"
+                $tempobj.PsTestParallelCount = "$i of $($Test.PsTestParallelCount)"
+                $tempobj.Remove('ParallelIndex')
                 logResult $tempobj
 
                 copyKeys -dest $obj -source $newobj -keys $Test.PsTestOutputKeys -append $true 
@@ -159,7 +163,7 @@ function runFunction ($sb, $parameters, $obj) {
     }
 
     try {
-        $result = & $sb @obj 4>&1 3>&1 5>&1 | extractMetric
+        $result = & { $VerbosePreference='Continue'; . $sb @obj 4>&1 3>&1 5>&1 } | extractMetric
         #$result = $sb.InvokeWithContext($null,@(), $p) 4>&1 3>&1 5>&1 | extractMetric
 
         if ($result -is [hashtable]) {
@@ -204,8 +208,10 @@ function getTestName ($Test) {
 
     if (Test-Path $t) {
         $testname = (Get-Item $t).BaseName
-    } else {
+    } elseif (gcm $t -EA:0) {
         $testname = $t
+    } else {
+        throw "Test $t not found"
     }
     return $testname
 }
@@ -228,10 +234,12 @@ function getExecutionContext ($Test) {
         #$sb = [ScriptBlock]::Create((cat $functionName -Raw))
         $parameters = $sb.Ast.ParamBlock.Parameters
         $testname = (Get-Item $t).BaseName
-    } else {
+    } elseif (gcm $t -EA:0) {
         $sb = (get-command $t -CommandType Function).ScriptBlock
         $parameters = $sb.Ast.Parameters
         $testname = $t
+    } else {
+        throw "Test $t not found"
     }
     return $sb, $parameters, $testname, $testRepeat
 }
@@ -612,7 +620,7 @@ function extractMetric ()
     PROCESS {
         if ($st -is [System.Management.Automation.VerboseRecord]) {
             $st = $st.Message
-            if ($st.StartsWith('#PsTest#')) 
+            if ($st.StartsWith('#PSTEST#', [System.StringComparison]::CurrentCultureIgnoreCase)) 
             { 
                 $a = $st.Substring(8).Trim().Split('=')
                 $key = ([string]$a[0]).Trim()

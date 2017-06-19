@@ -18,23 +18,23 @@ $ParameterSets = @(
   @{Param1='Param1-Value1'
         numerator=1
         denominator=1
-        PsTestParameterSetRepeat=2 # number of times all test should be repeated with this set.
-    },
-    @{Param1='Param1-Value2'
+        PsTestParameterSetRepeat=1 # number of times all test should be repeated with this set.
+    }
+   <# @{Param1='Param1-Value2'
         numerator=1
         denominator=0
-    }
+    } #>
 )
 
 $tests = @(
     @{ 
         PsTest = "..\Test1.ps1"
         PsTestParallelCount = 2
-        PsTestRepeat = 3
+        PsTestRepeat = 2
         PsTestDisableAutoShellExit = $false
-        PsTestOutputKeys = @('InstanceId') 
+        PsTestOutputKeys = @('Param1', 'InstanceId') 
     }
-    "..\Test Fail.ps1"
+   # "..\Test Fail.ps1"
 )
 
 function OnError()

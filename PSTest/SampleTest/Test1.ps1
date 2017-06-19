@@ -9,6 +9,8 @@ param ([string]$Param1='Value1')
 
 
 Write-Verbose "Executing Test1, Param1=$Param1"
+
+Write-Verbose "#PsTEST# OutputID=set via #PSTEST"
 sleep -Milliseconds 1
 #Output values
 @{
