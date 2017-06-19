@@ -33,8 +33,9 @@ function Convertto-PS ($obj,
         '$' + $obj.ToString()
     } elseif ($obj -is [System.ValueType]) {
         "[$($obj.GetType())]'$($obj.ToString())'"
-    } else {
-        "'$obj'"
+    } else {`
+        $st = $obj.ToString().Replace("'","''")
+        "'$st'"
     } 
 
 <#

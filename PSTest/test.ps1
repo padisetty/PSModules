@@ -94,6 +94,14 @@ function runParallelTest (
         }
         del "$file.log","$file.out.ps1","$file.ps1" -Force -EA:0
     }
+
+    if ($obj.PsTestMaxError -le (gfail).Count)
+    {
+        Convert-PsTestToTableFormat    
+        gstat
+        gfail
+        throw "Max errors reached, MaxError=$($obj.PsTestMaxError)"
+    }
 }
 
 function runTest (
@@ -137,9 +145,9 @@ function runTest (
         }
         logObject 'After State' $newobj
 
-        Write-PSUtilLog "END '$testName'`r`n`r`n"
+        Write-PSUtilLog "END ErrorCount = $((gfail).Count) '$testName'`r`n`r`n"
 
-        if ($newobj.PsTestStopOnError -and $newobj.PsTestResult -ne 'Success')
+        if ($newobj.PsTestMaxError -le (gfail).Count -and $newobj.PsTestResult -ne 'Success')
         {
             gstat
 

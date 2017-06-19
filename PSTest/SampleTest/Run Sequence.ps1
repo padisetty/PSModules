@@ -17,24 +17,19 @@ Write-Verbose 'Executing Run'
 $ParameterSets = @(
   @{Param1='Param1-Value1'
         numerator=1
-        denominator=1
+        denominator=0
         PsTestParameterSetRepeat=1 # number of times all test should be repeated with this set.
     }
-   <# @{Param1='Param1-Value2'
-        numerator=1
-        denominator=0
-    } #>
 )
 
 $tests = @(
     @{ 
-        PsTest = "..\Test1.ps1"
+        PsTest = "..\Add and Divide.ps1"
         PsTestParallelCount = 2
         PsTestRepeat = 2
         PsTestDisableAutoShellExit = $false
-        PsTestOutputKeys = @('Param1', 'InstanceId') 
+        PsTestOutputKeys = @('InstanceId') 
     }
-   # "..\Test Fail.ps1"
 )
 
 function OnError()
@@ -44,8 +39,8 @@ function OnError()
 
 $commonParameters = @{
     PsTestOnError='OnError'
-    PsTestParameterSetRepeat=1
-    PsTestStopOnError=$false
+    PsTestParameterSetRepeat=2
+    PsTestMaxError=1
 }
 
 Invoke-PsTest -Test $tests -ParameterSets $ParameterSets  -CommonParameters $commonParameters
