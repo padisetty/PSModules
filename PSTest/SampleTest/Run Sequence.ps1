@@ -18,33 +18,37 @@ $ParameterSets = @(
   @{Param1='Param1-Value1'
         numerator=1
         denominator=0
-        PsTestParameterSetRepeat=1 # number of times all test should be repeated with this set.
+        CommandId = 'c8fe1c7e-7d49-4310-9807-36876ae7194f'  
+        AssociationId = 'be1b31da-0e52-48d1-91e5-c817dc9481e1'
+        AutomationExecutionId = 'dfe74621-55ca-11e7-ae09-c1ce8e35670d'
     }
 )
 
 $tests = @(
     @{ 
         PsTest = "..\Add and Divide.ps1"
-        PsTestParallelCount = 2
-        PsTestRepeat = 2
+        PsTestParallelCount = 1
+        PsTestRepeat = 1
         PsTestDisableAutoShellExit = $false
         PsTestOutputKeys = @('InstanceId') 
+        #ErrorBehavior = 'SkipTests'
     }
 )
 
-function OnError()
+
+function OnError($PsTestObject)
 {
-    Write-Verbose 'Executing OnError'
+    Write-Verbose 'Error Information:'
 }
 
 $commonParameters = @{
-    PsTestOnError='OnError'
-    PsTestParameterSetRepeat=2
-    PsTestMaxError=1
+#    PsTestOnError='OnError'
+    PsTestParameterSetRepeat=1 # number of times all test should be repeated with this set.
+    PsTestMaxError=5
 }
 
 Invoke-PsTest -Test $tests -ParameterSets $ParameterSets  -CommonParameters $commonParameters
 
-gstat
+$null = gstat
 
 Convert-PsTestToTableFormat    

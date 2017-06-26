@@ -16,35 +16,48 @@ function Invoke-PsTest (
     $_depth++
     Set-PSUtilLogFile "$LogNamePrefix.log"
 
-    $set = 0
-    foreach ($parameterSet in $ParameterSets) {
-        $set++
-        $parameterSetRepeat = 1
-        if ($parameterSet.PsTestParameterSetRepeat) { 
-            $parameterSetRepeat = $parameterSet.PsTestParameterSetRepeat
-        }
+    try {
+        $set = 0
+        foreach ($parameterSet in $ParameterSets) {
+            $set++
+            $parameterSetRepeat = getInheritedValue -objs @($CommonParameters, $parameterSet) -key 'PsTestParameterSetRepeat' -defaultValue 1
 
-        for ($j=1; $j -le $parameterSetRepeat; $j++) {
-            $obj = New-Object -TypeName ‘System.Collections.Generic.Dictionary[[String],[Object]]’ -ArgumentList @([System.StringComparer]::CurrentCultureIgnoreCase)
-            copyKeys -dest $obj -source $CommonParameters
-            copyKeys -dest $obj -source $parameterSet
-            $obj.PsTestParameterSet = "#$set"
-            $obj.PsTestParameterSetRepeat = "$j of $parameterSetRepeat"
+            for ($j=1; $j -le $parameterSetRepeat; $j++) {
+                $obj = New-Object -TypeName ‘System.Collections.Generic.Dictionary[[String],[Object]]’ -ArgumentList @([System.StringComparer]::CurrentCultureIgnoreCase)
+                copyKeys -dest $obj -source $CommonParameters
+                copyKeys -dest $obj -source $parameterSet
+                $obj.PsTestParameterSet = "#$set"
+                $obj.PsTestParameterSetRepeat = "$j of $parameterSetRepeat"
 
-            if ($parameterSetRepeat -gt 1 -or $ParameterSets.Count -gt 1) {
-                logObject -message "Input Parameters (ParameterSet #$set, ParameterSetRepeat=$j)" -obj $parameterSet
+                Write-PSUtilLog "***BEGIN ParameterSet: Set #$j of $($ParameterSets.Count), Repeat: $($obj.PsTestParameterSetRepeat)"
+                logObject -message 'Parameters' -obj $parameterSet
+                foreach ($test in $Tests) {
+                    if ($test.PsTestParallelCount -gt 1) {
+                        $ret = runParallelTest -Test $test  -obj $obj -LogNamePrefix $LogNamePrefix 
+                    } else {
+                        $ret = runTest -Test $test -obj $obj
+                    }
+                    if ($test.ErrorBehavior -eq 'SkipTests' -and (! $ret)) {
+                        Write-PSUtilLog "Skipping remaining tests (if any) and will continue with ParameterSet as ErrorBehavior is set to 'SkipTests'"
+                        break
+                    }
+                }
+                Write-PSUtilLog "END ParameterSet"
+                Write-PSUtilLog ''
                 Write-PSUtilLog ''
             }
-            foreach ($test in $Tests) {
-                if ($test.PsTestParallelCount -gt 1) {
-                    runParallelTest -Test $test  -obj $obj -LogNamePrefix $LogNamePrefix 
-                } else {
-                    runTest -Test $test -obj $obj
-                }
-            }
         }
+        $_depth--
+    } catch {
+        Write-PSUtilLog $_.Exception.Message -color Red
     }
-    $_depth--
+    Convert-PsTestToTableFormat    
+    $null = gstat 
+    $testerrors = gfail
+    if ($testerrors.Count -gt 0) {
+        Write-PSUtilLog 'List of Errors:'
+        $testerrors | %{ Write-PSUtilLog $_ ; Write-PSUtilLog ''}
+    }
 }
 
 function runParallelTest (
@@ -52,6 +65,7 @@ function runParallelTest (
     $obj,
     [string]$LogNamePrefix)
 {
+    $ret = $true
     $testName = getTestName($Test)
     $ps = @()
     for ($i = 1; $i -le $Test.PsTestParallelCount; $i++) {
@@ -65,24 +79,30 @@ function runParallelTest (
         
         "runTest -test `$test -obj `$obj -LogNamePrefix '$file'" >> "$file.ps1"
 
-        'if (-not (gfail) -and -! $Test.PsTestDisableAutoShellExit) { Stop-Process -Id $pid }' >> "$file.ps1"
+        'Stop-Process -Id $pid' >> "$file.ps1"
 
-        $process = Start-Process -FilePath "$PSHOME\powershell.exe" -PassThru -ArgumentList @('-NoExit', '-NoProfile', "-command . '.\$file.ps1'")
+        $windowStyle = 'Minimized' #default is minimized
+        if ($obj.PsTestMaxError -eq 1) { #if error count is zero, assumed to run in debug model
+            $windowStyle = 'Normal'
+        }
+        $process = Start-Process -FilePath "$PSHOME\powershell.exe" -PassThru -ArgumentList @('-NoExit', '-NoProfile', "-command . '.\$file.ps1'") -WindowStyle $windowStyle
         $process.PriorityClass = 'BelowNormal'
         $ps += $process
-        Write-PSUtilLog "Started $file"
+        Write-PSUtilLog "[$i] Started $file"
     }
 
     for ($i = 1; $i -le $ps.Count; $i++) {
         $file = "$LogNamePrefix.$testName.$i"
-        Write-PSUtilLog "Waiting for $file to complete"
+        Write-PSUtilLog "[$i] Waiting for $file to complete"
         $ps[$i-1].WaitForExit()
-        Write-PSUtilLog "Completed $file ExitCode=$($ps[$i-1].ExitCode)"
-        cat "$file.log" >> "$LogNamePrefix.log"
+        Write-PSUtilLog "[$i] Completed $file ExitCode=$($ps[$i-1].ExitCode)"
+        cat "$file.log" | % {"[$i] $_"} >> "$LogNamePrefix.log"
         if (Test-Path "$file.out.ps1") {
             $newobjs = cat "$file.out.ps1" -Raw | Invoke-Expression
             foreach ($newobj in $newobjs) {
-
+                if ($newobj.PsTestResult -ne 'Success') {
+                    $ret = $false
+                }
                 #to order the results, a new object is created.
                 $tempobj = newTestObject -obj $newobj
                 $tempobj.PsTestParallelCount = "$i of $($Test.PsTestParallelCount)"
@@ -97,11 +117,9 @@ function runParallelTest (
 
     if ($obj.PsTestMaxError -le (gfail).Count)
     {
-        Convert-PsTestToTableFormat    
-        gstat
-        gfail
-        throw "Max errors reached, MaxError=$($obj.PsTestMaxError)"
+        Write-PSUtilLog "Max errors reached, MaxError=$($obj.PsTestMaxError)"
     }
+    return $ret
 }
 
 function runTest (
@@ -113,13 +131,14 @@ function runTest (
         Set-PSUtilLogFile "$LogNamePrefix.log"
     }
 
+    $ret = $true
     $sb, $parameters, $testname, $testRepeat = getExecutionContext($Test)
-
+    $errorsInParallelExecution = 0
     for ($i = 1; $i -le $testRepeat; $i++) {
         $newobj = cloneTestObject $obj $Test
         $newobj.PsTestRepeat = "$i of $testRepeat"
         Write-PSUtilLog ''
-        Write-PSUtilLog "**BEGIN '$TestName' ($i of $testRepeat)"
+        Write-PSUtilLog "**BEGIN TEST '$TestName' ($i of $testRepeat)"
     
         logObject 'Before State' $newobj
 
@@ -127,43 +146,70 @@ function runTest (
         $ret = runFunction $sb $parameters $newobj
         $newobj.PsTestExecutionTime = ((Get-Date) - $startTime).ToString()
 
-        if ($ret) {
-            $newobj.PsTestResult = 'Success'
-        } elseif ($newobj.OnError.Length -gt 0) {
-            $sb, $parameters, $null = getExecutionContext($newobj.OnError)
-            $null = runFunction $sb $parameters $newobj
-        }
-
         if ($test.PsTestOutputObjectFile) {
             if ($i -eq 1) {
                 Convertto-PS $newobj > $test.PsTestOutputObjectFile
             } else {
                 Convertto-PS $newobj >> $test.PsTestOutputObjectFile
             }
+            if ($newobj.PsTestResult -ne 'Success') {
+                $errorsInParallelExecution++
+            }
         } else {
             logResult $newobj
         }
         logObject 'After State' $newobj
+        
 
-        Write-PSUtilLog "END ErrorCount = $((gfail).Count) '$testName'`r`n`r`n"
+        if (!$ret -and $newobj.PsTestOnError.Length -gt 0) {
+            $ret = $false
+            Write-PSUtilLog ''
+            Write-PSUtilLog "Error Summary: Test=$TestName"
+            Write-PSUtilLog "Message: $($newobj.PsTestMessage)"
+            $tempobj = @{}
+            $newobj.Keys | % { if ($_ -notlike 'PsTest*') {$tempobj.$_ = $newobj.$_} }
+            logObject -message 'State' -objs $tempobj
 
-        if ($newobj.PsTestMaxError -le (gfail).Count -and $newobj.PsTestResult -ne 'Success')
+            $errorsb, $errorparameters, $null = getExecutionContext($newobj.PsTestOnError)
+            $null = runFunction $errorsb $errorparameters $newobj 
+            Write-PSUtilLog ''
+            if ($test.ErrorBehavior -eq 'SkipTests') {
+                break
+            }
+        }
+
+        $stat = gstat
+        $msg = "Total Success=$($stat.Success), Fail=$($stat.Fail)"
+        if ($test.PsTestOutputObjectFile) {
+            $msg += ", Current session errors=$errorsInParallelExecution"
+        }
+
+        Write-PSUtilLog $msg
+        Write-PSUtilLog "Test=$testname, Result=$($newobj.PsTestResult), Message=$($newobj.PsTestMessage)"
+        Write-PSUtilLog "END TEST ($i of $testRepeat)`r`n"
+
+        if ($newobj.PsTestMaxError -le (gfail).Count + $errorsInParallelExecution)
         {
-            gstat
-
-            Convert-PsTestToTableFormat    
-            throw "$TestName`:$($newobj.Message)"
+            throw "Max errors reached, MaxError=$($newobj.PsTestMaxError)"
         }
 
         copyKeys -dest $obj -source $newobj -keys $Test.PsTestOutputKeys -append $true
     }
+    return $ret
 }
 
+#returns true on success
 function runFunction ($sb, $parameters, $obj) {
+
+    $inputParams = @{}
+    
     foreach ($parameter in $parameters)
     {
         $paramname = $parameter.Name.VariablePath.UserPath
-        if ($obj.ContainsKey($paramname)) {
+        if ($paramname -eq 'PsTestObject') {
+            $inputParams.PsTestObject = $obj
+        } elseif ($obj.ContainsKey($paramname)) {
+            $inputParams.$paramname = $obj[$paramname]
             Write-PSUtilLog "    Parameter $paramname=$($obj[$paramname]) (Overritten)"
         } else {
             Write-PSUtilLog "    Parameter $paramname=$($parameter.DefaultValue) (Default Value)"
@@ -171,7 +217,11 @@ function runFunction ($sb, $parameters, $obj) {
     }
 
     try {
-        $result = & { $VerbosePreference='Continue'; . $sb @obj 4>&1 3>&1 5>&1 } | extractMetric
+        $save =$global:VerbosePreference
+        $global:VerbosePreference='Continue'
+        $result = &  $sb @inputParams 4>&1 3>&1 5>&1  | extractMetric
+        $global:VerbosePreference = $save
+
         #$result = $sb.InvokeWithContext($null,@(), $p) 4>&1 3>&1 5>&1 | extractMetric
 
         if ($result -is [hashtable]) {
@@ -194,7 +244,7 @@ function runFunction ($sb, $parameters, $obj) {
         }
         $ret = $false        
     }
-    $ret
+    return $ret
 }
 
 function copyKeys ($dest, $source, $keys = $source.Keys, $append = $false) {
@@ -259,7 +309,7 @@ function newTestObject ($obj = $null) {
     $newobj.Add('PsTest', '')
     $newobj.Add('PsTestParallelCount', '')
     $newobj.Add('PsTestRepeat', '')
-    $newobj.Add('PsTestResult', '')
+    $newobj.Add('PsTestResult', 'Success')
     $newobj.Add('PsTestMessage', '')
     $newobj.Add('PsTestExecutionTime', '')
 
@@ -280,6 +330,16 @@ function cloneTestObject ($obj, $test) {
     }
 
     $newobj
+}
+
+function getInheritedValue ($objs, $key, $defaultValue) {
+    $ret = $defaultValue
+    foreach ($obj in $objs) {
+        if ($obj.$key) {
+            $ret = $obj.$key
+        }    
+    }
+    return $ret
 }
 
 function Invoke-PsTestRandomLoop (
@@ -313,7 +373,7 @@ function PsTestLaunchWrapper ([string]$FileName, [string]$Name) {
     Write-Host "Executing $FileName" -ForegroundColor Yellow
     . $FileName $Name
     #$_depth--
-    gstat
+    $null = gstat
     if (-not (gfail)) { Stop-Process -Id $pid }
    # exit
 }
@@ -403,7 +463,7 @@ function Invoke-PsTestLaunchInParallel (
             $psmap.GetEnumerator() | % { "$($_.Key) $($_.Value)" } > 'psmap.txt'
         }
 
-        gstat
+        $null = gstat
         if ($psmap.Keys.Count -eq 0) {
             Write-Verbose 'Completed'
             return
@@ -456,7 +516,8 @@ function Get-PsTestStatistics ([string]$logfile = $ResultsFile)
         {
             $percent = 0
         }
-        "Test Summary so far: Success=$success, Fail=$fail percent success=$percent%"
+        Write-Verbose "Test Summary so far: Success=$success, Fail=$fail percent success=$percent%"
+        return @{Success=$success;Fail=$fail;Percent=$percent}
     }
     catch
     {
@@ -488,10 +549,6 @@ function Get-PsTestResults ([string]$Filter1, [string]$Filter2,
             cat $ResultsFileName | ? {$_ -like "*$Filter1*"} | ? {$_ -like "*$Filter2"} | % {$_.Replace("`t","`r`n    ")}
         }
     }
-    else
-    {
-        Write-Warning "$ResultsFileName not found"
-    }
 }
 
 function Convert-PsTestToTableFormat ($inputFile = '')
@@ -522,6 +579,22 @@ function Convert-PsTestToTableFormat ($inputFile = '')
             }
         }
     }
+
+    $temp = $labels
+    $labels = @('PsTestParameterSet', 'PsTestParameterSetRepeat', 'PsTest', 'PsTestParallelCount', 'PsTestRepeat', 'PsTestResult', 'PsTestMessage', 'PsTestExecutionTime')
+    $append = @()
+    foreach ($label in $temp)
+    {
+        if ($label -like 'PsTest*') {
+            if (! $labels.Contains($label))
+            {
+                $append += $label
+            }
+        } else {
+            $labels += $label
+        }
+    }
+    $labels += $append
     
     $st = ''
     foreach ($label in $labels)
@@ -582,12 +655,17 @@ function logResult ($obj,
 }
 
 function logObject ( [string]$message,
-        $obj, 
+        $objs, 
         [ConsoleColor]$color = 'White'
 )
 {
-    $st = Get-PSUtilStringFromObject $obj
-    Write-PSUtilLog "$message`:`r`n    $($st.Replace("`t","`r`n    "))" $color
+    $sb = New-Object System.Text.StringBuilder
+    $null = $sb.Append("$message`:`r`n    ")
+    foreach ($obj in $objs) {
+        $st = Get-PSUtilStringFromObject $obj
+        $null = $sb.Append($st.Replace("`t","`r`n    "))
+    }
+    Write-PSUtilLog $sb.ToString() $color
 }
 
 

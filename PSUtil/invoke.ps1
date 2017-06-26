@@ -10,7 +10,8 @@
     }
 }
 
-function Invoke-PSUtilRetryOnError ($ScriptBlock, $RetryCount = 3, $SleepTimeInMilliSeconds = 5000)
+function Invoke-PSUtilRetryOnError ($ScriptBlock, $RetryCount = 3, $SleepTimeInMilliSeconds = 5000,
+               [string[]]$IngnoreOnlySpecificErrors = '*')
 {
     for ($i=1; $i -le $retryCount; $i++)
     {
@@ -23,10 +24,16 @@ function Invoke-PSUtilRetryOnError ($ScriptBlock, $RetryCount = 3, $SleepTimeInM
         catch
         {
             Write-Host "Error: $($_.Exception.Message), RetryCount=$i, ScriptBlock=$scriptBlock" -ForegroundColor Yellow
-            Write-Host $a
-            if ($i -eq $retryCount)
+            $found = $false
+            foreach ($ingnoreOnlySpecificError in $IngnoreOnlySpecificErrors) {
+                if ($_.Exception.Message -like $ingnoreOnlySpecificError) {
+                    $found = $true
+                    break
+                }
+            }
+            if ((! $found) -or $i -ge $retryCount)
             {
-                throw $_.Execption
+                throw
             }
             Sleep -Milliseconds $SleepTimeInMilliSeconds
         }

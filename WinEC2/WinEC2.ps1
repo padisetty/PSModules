@@ -197,14 +197,18 @@ function Get-WinEC2Instance
         [Parameter(Position=2)][string]$DesiredState,
         [Parameter(Position=3)][string]$Region
     )
-
+    Write-Verbose "Get-WinEC2Instance: NameOrInstanceIds=$NameOrInstanceIds, DesiredState=$DesiredState, Region=$Region"
     $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
 
     $instances = findInstance -NameOrInstanceIds $NameOrInstanceIds -DesiredState $DesiredState
+
+    Write-Verbose "Get-WinEC2Instance: Found Instance Count=$($instances.Count)"
     $wininstances = @()
     foreach ($instance in $instances)
     {
-        $wininstances += getWinInstanceFromEC2Instance $instance
+        $wininstance = getWinInstanceFromEC2Instance $instance
+        $wininstances += $wininstance
+        Write-Verbose "Get-WinEC2Instance: InstanceId=$($wininstance.InstanceId), SSMPingStatus=$($wininstance.SSMPingStatus), AgentVersion=$($wininstance.AgentVersion)"
     }
     $wininstances
 }
@@ -443,9 +447,10 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
                 Remove-PSSession $s
             }
             if ($SSMHeartBeat) {
+                $startTime = Get-Date
                 $cmd = { (Get-SSMInstanceInformation -InstanceInformationFilterList @{ Key='InstanceIds'; ValueSet=$instanceid}).Count -eq 1}
                 $null = Invoke-PSUtilWait $cmd 'Instance Registration' $Timeout
-                $time.'SSMHeartBeat' = (Get-Date) - $startTime
+                $time.'SSMHeartBeatSincePing' = (Get-Date) - $startTime
                 Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - for SSM Heart Beat' -f ($time.SSMHeartBeat))
             }
         }
