@@ -50,6 +50,13 @@ function Convertto-PS ($obj,
     #>
 }
 
+function Get-PsUtilExceptionMessage ($obj) {
+    $ex = $obj.Exception
+    $line = $obj.InvocationInfo.ScriptLineNumber
+    $script = (Get-Item $obj.InvocationInfo.ScriptName).Name
+    return "$($ex.Message) ($script, Line #$line)" 
+}
+
 
 function Get-PSUtilStringFromObject ($obj, $splitchar = "`t")
 {

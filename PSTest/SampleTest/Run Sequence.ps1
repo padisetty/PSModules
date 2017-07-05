@@ -14,41 +14,38 @@ if ($Name.Length -eq 0) {
 
 Write-Verbose 'Executing Run'
 
-$ParameterSets = @(
-  @{Param1='Param1-Value1'
-        numerator=1
-        denominator=0
-        CommandId = 'c8fe1c7e-7d49-4310-9807-36876ae7194f'  
-        AssociationId = 'be1b31da-0e52-48d1-91e5-c817dc9481e1'
-        AutomationExecutionId = 'dfe74621-55ca-11e7-ae09-c1ce8e35670d'
-    }
-)
-
 $tests = @(
     @{ 
         PsTest = "..\Add and Divide.ps1"
-        PsTestParallelCount = 1
-        PsTestRepeat = 1
+        PsTestParallelCount = 2
+    
+        PsTestRepeat = 2
+    
         PsTestDisableAutoShellExit = $false
         PsTestOutputKeys = @('InstanceId') 
-        #ErrorBehavior = 'SkipTests'
+        #FailBehavior = 'SkipTests'
     }
 )
 
-
-function OnError($PsTestObject)
-{
-    Write-Verbose 'Error Information:'
-}
-
 $commonParameters = @{
-#    PsTestOnError='OnError'
-    PsTestParameterSetRepeat=1 # number of times all test should be repeated with this set.
-    PsTestMaxError=5
+    PsTestOnFail='..\OnFailure.ps1'
+    
+    PsTestSuiteRepeat=2 # number of times all test should be repeated with this set.
+
+    PsTestSuiteMaxFail=10 # max failures allowed
+    PsTestSuiteMaxConsecutiveFailPerTest=2 #multiple failures in the same test is counted as 1 
+
+    PsTestMaxFail=3 # per test
+    PsTestMaxConsecutiveFail=3 # per test
+
+    Param1='Param1-Value1'
+    numerator=1
+    denominator=0
+    CommandId = 'c8fe1c7e-7d49-4310-9807-36876ae7194f'  
+    AssociationId = 'be1b31da-0e52-48d1-91e5-c817dc9481e1'
+    AutomationExecutionId = 'dfe74621-55ca-11e7-ae09-c1ce8e35670d'
 }
 
-Invoke-PsTest -Test $tests -ParameterSets $ParameterSets  -CommonParameters $commonParameters
+Invoke-PsTest -Test $tests -CommonParameters $commonParameters -LogNamePrefix 'sampletest'
 
-$null = gstat
-
-Convert-PsTestToTableFormat    
+#Convert-PsTestToTableFormat    

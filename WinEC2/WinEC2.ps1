@@ -145,11 +145,11 @@ function findInstance
         $filter = New-Object Amazon.EC2.Model.Filter
         if ($NameOrInstanceIds.StartsWith('i-'))
         {
-            $filter.Name = "instance-id"
+            $filter.Name = 'instance-id'
         }
         else
         {
-            $filter.Name = "tag:Name"
+            $filter.Name = 'tag:Name'
         }
         $NameOrInstanceIds.Split(',') | %{$filter.Values.Add($_.Trim())}
         $filters += $filter
@@ -158,7 +158,7 @@ function findInstance
     $DesiredState = $DesiredState.Trim()
     if ($DesiredState.Length -eq 0)
     {
-        $DesiredState = 'running,pending,shutting-down,stopping,stopped'
+        $DesiredState = 'running,pending,stopping,stopped'
     }
     if ($DesiredState -ne '*')
     {
@@ -229,6 +229,15 @@ function Get-WinEC2ConsoleOutput
     }
 }
 
+function getPlatformName ($imageId) {
+    $image = Get-EC2Image $imageId
+    if ($image.Description -like '*ubuntu*') {
+        'Ubuntu'
+    } elseif ($image.Description -like '*Amazon Linux*') {
+        'Amazon Linux'
+    }
+}
+
 function New-WinEC2Instance
 {
     param (
@@ -288,6 +297,7 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
             "Placement_AvailabilityZone=$Placement_AvailabilityZone, AdditionalInfo=$AdditionalInfo, " + 
             "IamRoleName(InstanceProfile_Id)=$IamRoleName, Timeout=$Timeout")
     $instanceid = $null
+
     try
     {
         if (-not $Password)
@@ -399,8 +409,6 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
         #$instance = $resp.RunInstancesResult.Reservation.Instances[0]
         #$ec2clinet = $null
 
-        Write-Verbose "#PSTEST# InstanceIds=$($instances.InstanceId)"
-
         if ($Name)
         {
             Invoke-PSUtilRetryOnError {New-EC2Tag -ResourceId $instances.InstanceId -Tag @{Key='Name'; Value=$Name}}
@@ -409,6 +417,7 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
 
         foreach ($instance in $instances) {
             $instanceId = $instance.InstanceId
+            Write-Verbose "#PSTEST# InstanceIds=$instanceId"
             Write-Verbose "Wait for InstanceId=$instanceId to come online"
 
 
@@ -447,10 +456,20 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
                 Remove-PSSession $s
             }
             if ($SSMHeartBeat) {
+                
+                $wininstance = Get-WinEC2Instance $instanceId
+                if (! $wininstance) { throw "WinInstance with InstanceId=$instanceId not found" }
+                #if (! $wininstance.PlatformName) { $wininstance | Add-Member -NotePropertyName 'PlatformName' -NotePropertyValue (getPlatformName $wininstance.ImageId)}
+
+                $cmd = { Invoke-WinEC2Command -InstancesOrNameOrInstanceIds $wininstance -Script 'ps' }
+                $null = Invoke-PSUtilWait $cmd "SSH (InstanceId=$instanceId)" $Timeout
+                $time.'SSH' = (Get-Date) - $startTime
+                Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - for SSH' -f ($time.SSH))
+
                 $startTime = Get-Date
                 $cmd = { (Get-SSMInstanceInformation -InstanceInformationFilterList @{ Key='InstanceIds'; ValueSet=$instanceid}).Count -eq 1}
-                $null = Invoke-PSUtilWait $cmd 'Instance Registration' $Timeout
-                $time.'SSMHeartBeatSincePing' = (Get-Date) - $startTime
+                $null = Invoke-PSUtilWait $cmd "SSM Managed Instance Registration  (InstanceId=$instanceId)" $Timeout
+                $time.'SSMHeartBeatSincePing' = (Get-Date) - $startTime 
                 Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - for SSM Heart Beat' -f ($time.SSMHeartBeat))
             }
         }
@@ -686,6 +705,9 @@ function ReStart-WinEC2Instance (
     }
 }
 
+
+
+
 function Invoke-WinEC2Command (
         [Parameter (Position=1, Mandatory=$true)]$InstancesOrNameOrInstanceIds,
         [Parameter(Position=2, Mandatory=$true)][String]$Script,
@@ -844,6 +866,8 @@ function getWinInstanceFromEC2Instance ($instance)
         $obj | Add-Member -NotePropertyName 'SSMPingStatus' -NotePropertyValue $ssminfo.PingStatus
         $obj | Add-Member -NotePropertyName 'AgentVersion' -NotePropertyValue $ssminfo.AgentVersion
         $obj | Add-Member -NotePropertyName 'ManagedInstance' -NotePropertyValue $ssminfo
+    } else {
+        $obj | Add-Member -NotePropertyName 'PlatformName' -NotePropertyValue (getPlatformName $instance.ImageId)
     }
 
 

@@ -6,8 +6,6 @@ $sum = $numerator + $denominator
 Write-Verbose "#PSTEST# Sum=$sum"
 Write-Verbose 'after'
 
-throw "test'error1"
-
 $divide = $numerator / $denominator
 
 @{
