@@ -90,6 +90,8 @@ function runParallelTest (
 {
     $testName = getTestName($Test)
     $ps = @()
+    Write-PSUtilLog "**BEGIN TEST '$testName'"
+    Write-PSUtilLog "PsTestSuiteRepeat: $($obj.PsTestSuiteRepeat)"
     for ($i = 1; $i -le $Test.PsTestParallelCount; $i++) {
         $file = "$LogNamePrefix.$i"
 
@@ -110,7 +112,9 @@ function runParallelTest (
         $process = Start-Process -FilePath "$PSHOME\powershell.exe" -PassThru -ArgumentList @('-NoExit', '-NoProfile', "-command . '.\$file.ps1'") -WindowStyle $windowStyle
         $process.PriorityClass = 'BelowNormal'
         $ps += $process
-        Write-Host "[$file] Started process"
+
+
+        Write-PSUtilLog "[$file] Started process"
     }
 
     $failCount = $successCount = 0
@@ -135,7 +139,8 @@ function runParallelTest (
         }
         del "$file.out.ps1","$file.ps1" -Force -EA:0
     }
-
+    Write-PSUtilLog "**END TEST '$testName'"
+    Write-PSUtilLog ''
     return @{FailCount=$failCount;SuccessCount=$successCount}
 }
 
@@ -156,7 +161,8 @@ function runTest (
         $newobj.PsTestResult = 'Success'
         Set-PSUtilLogFile $newobj.PsTestLog 
         Write-PSUtilLog ''
-        Write-PSUtilLog "**BEGIN TEST '$TestName' ($i of $testRepeat)"
+        Write-PSUtilLog "**BEGIN TEST '$TestName' (PsTestRepeat=$i of $testRepeat)"
+        Write-PSUtilLog "PsTestSuiteRepeat: $($obj.PsTestSuiteRepeat)"
     
         logObject 'Before State' $newobj -keyorder @()
 
@@ -201,6 +207,7 @@ function runTest (
 
         Write-PSUtilLog "Test=$testname, Result=$($newobj.PsTestResult), Message=$($newobj.PsTestMessage)"
         Write-PSUtilLog "END TEST Repeat: $i of $testRepeat, Result Count: Success=$successCount Fail=$failCount"
+        Write-PSUtilLog ''
 
         if ($ret) {
             Remove-Item -Path $newobj.PsTestLog 

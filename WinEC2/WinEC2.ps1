@@ -456,13 +456,12 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
                 Remove-PSSession $s
             }
             if ($SSMHeartBeat) {
-                
-                $wininstance = Get-WinEC2Instance $instanceId
-                if (! $wininstance) { throw "WinInstance with InstanceId=$instanceId not found" }
+                #$wininstance = Get-WinEC2Instance $instanceId
+                #if (! $wininstance) { throw "WinInstance with InstanceId=$instanceId not found" }
                 #if (! $wininstance.PlatformName) { $wininstance | Add-Member -NotePropertyName 'PlatformName' -NotePropertyValue (getPlatformName $wininstance.ImageId)}
 
-                $cmd = { Invoke-WinEC2Command -InstancesOrNameOrInstanceIds $wininstance -Script 'ps' }
-                $null = Invoke-PSUtilWait $cmd "SSH (InstanceId=$instanceId)" $Timeout
+                $cmd = { Invoke-WinEC2Command -InstancesOrNameOrInstanceIds $instanceId -Script 'ps' }
+                $null = Invoke-PSUtilWait $cmd "SSH (InstanceId=$instanceId)" $Timeout -ExceptionFilter '*'
                 $time.'SSH' = (Get-Date) - $startTime
                 Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - for SSH' -f ($time.SSH))
 
@@ -723,7 +722,7 @@ function Invoke-WinEC2Command (
     $parameters = @{}
 
     if ($InstancesOrNameOrInstanceIds -is [string]) {
-        $instances = Get-WinEC2Instance $InstancesOrNameOrInstanceIds -DesiredState 'running'
+        $instances = Get-WinEC2Instance $InstancesOrNameOrInstanceIds -DesiredState 'running' 4>$null
     } else {
         $instances = $InstancesOrNameOrInstanceIds
     }

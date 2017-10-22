@@ -16,6 +16,15 @@ Write-Verbose 'Executing Run'
 
 $tests = @(
     @{ 
+        PsTest = "..\Test1.ps1"
+        PsTestParallelCount = 1
+    
+        PsTestRepeat = 2
+    
+        PsTestDisableAutoShellExit = $false
+    }
+
+    @{ 
         PsTest = "..\Add and Divide.ps1"
         PsTestParallelCount = 2
     
@@ -40,7 +49,7 @@ $commonParameters = @{
 
     Param1='Param1-Value1'
     numerator=1
-    denominator=0
+    denominator=1
     CommandId = 'c8fe1c7e-7d49-4310-9807-36876ae7194f'  
     AssociationId = 'be1b31da-0e52-48d1-91e5-c817dc9481e1'
     AutomationExecutionId = 'dfe74621-55ca-11e7-ae09-c1ce8e35670d'
