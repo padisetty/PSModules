@@ -34,7 +34,7 @@
 #    if you are running blocks of code from ISE PSScriptRoot will not be defined.
 #
 
-Import-Module -Global 'C:\Program Files (x86)\AWS Tools\PowerShell\AWSPowerShell\AWSPowerShell.psd1' -Verbose:$false
+Import-Module -Global AWSPowerShell -Verbose:$false
 Import-Module PSUtil -Force -Global  -Verbose:$false
 trap { break } #This stops execution on any exception
 $ErrorActionPreference = 'Stop'
