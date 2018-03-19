@@ -1,4 +1,5 @@
-﻿function Set-PSUtilLogFile ([string]$file, [switch] $delete)
+﻿<#
+function Set-PSUtilLogFile ([string]$file, [switch] $delete)
 {
     Write-Verbose "New log file is '$file'"
     $global:_PsUtilOptions.LogFile = $file
@@ -7,7 +8,7 @@
         del $global:_PsUtilOptions.LogFile -ea 0
     }
 }
-
+#>
 if (! $global:_PsUtilOptions) {
     $global:_PsUtilOptions = @{
         TimeStamp = $true

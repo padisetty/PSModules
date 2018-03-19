@@ -120,7 +120,7 @@ function Test-WinEC2 ()
         $result = 'Fail'
     }
 
-    $groups = Get-EC2SecurityGroup
+    $groups = Invoke-PSUtilRetryOnError {Get-EC2SecurityGroup} -IngnoreOnlySpecificErrors '*limit*'
     if (!$groups.GroupName.Contains($WinEC2Defaults.DefaultSecurityGroup))
     {
         Write-Warning "SecurityGroup with name $($WinEC2Defaults.DefaultSecurityGroup) not found, you can run 'Update-WinEC2FireWallSource' to create it"
@@ -137,6 +137,7 @@ function findInstance
         [Parameter (Position=1)][string]$NameOrInstanceIds = '*',
         [Parameter(Position=2)][string]$DesiredState
     )
+#Write-Host "findInstance: Region=$Region, Default=$((Get-DefaultAWSRegion).Region)"
 
     $filters = @()
     $NameOrInstanceIds = $NameOrInstanceIds.Trim()
@@ -168,26 +169,29 @@ function findInstance
         $filters += $filter
     }
 
-    (Get-EC2Instance -Filter $filters).Instances
+    (Invoke-PSUtilRetryOnError {Get-EC2Instance -Filter $filters} -IngnoreOnlySpecificErrors '*limit*').Instances
 }
 
 $DefaultRegion = 'us-east-1'
 function getAndSetRegion ([string]$Region)
 {
+#Write-Host "getAndSetRegion Region=$Region, DefaultAWSRegion=$((Get-DefaultAWSRegion).Region)"
     if ($Region.Length -gt 0) 
     {
         Set-DefaultAWSRegion $Region
     }
     else
     {
-        $Region = Get-DefaultAWSRegion
+        $Region = (Get-DefaultAWSRegion).Region
         if ($Region.Length -eq 0) 
         {
             $Region = $DefaultRegion 
             Set-DefaultAWSRegion $Region
         }
     }
-    $Region
+    $script:DefaultRegion = $Region
+    return $Region
+#Write-Host "getAndSetRegion Region=$Region, DefaultAWSRegion=$((Get-DefaultAWSRegion).Region)"
 }
 
 function Get-WinEC2Instance
@@ -197,8 +201,10 @@ function Get-WinEC2Instance
         [Parameter(Position=2)][string]$DesiredState,
         [Parameter(Position=3)][string]$Region
     )
-    Write-Verbose "Get-WinEC2Instance: NameOrInstanceIds=$NameOrInstanceIds, DesiredState=$DesiredState, Region=$Region"
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+#Write-HOST "Get-WinEC2Instance: NameOrInstanceIds=$NameOrInstanceIds, DesiredState=$DesiredState, Region=$Region, RegionSetAs=$((Get-DefaultAWSRegion).Region)"
+
+    $RegionSetAs = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    Write-Verbose "Get-WinEC2Instance: NameOrInstanceIds=$NameOrInstanceIds, DesiredState=$DesiredState, Region=$Region, RegionSetAs=$RegionSetAs"
 
     $instances = findInstance -NameOrInstanceIds $NameOrInstanceIds -DesiredState $DesiredState
 
@@ -400,7 +406,7 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
         }
 
         $startTime = Get-Date
-        $instances = (New-EC2Instance @parameters).Instances
+        $instances = (Invoke-PSUtilRetryOnError {New-EC2Instance @parameters} -IngnoreOnlySpecificErrors '*limit*').Instances
 
         $time = @{}
         #$awscred = (Get-AWSCredentials -StoredCredentials 'AWS PS Default').GetCredentials()
@@ -427,7 +433,7 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
             Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to running state' -f ($time.Running))
         
             #Wait for ping to succeed
-            $a = Get-EC2Instance -Filter @{Name = "instance-id"; Values = $instanceid}
+            $a = Invoke-PSUtilRetryOnError {Get-EC2Instance -Filter @{Name = "instance-id"; Values = $instanceid}} -IngnoreOnlySpecificErrors '*limit*'
             $PublicIpAddress = $a.Instances[0].PublicIpAddress
 
             if (-not $IgnorePing) {
@@ -441,8 +447,8 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
                 #Wait until the password is available
                 if (-not $Password)
                 {
-                    $cmd = {Get-EC2PasswordData -InstanceId $instanceid -PemFile $keyfile -Decrypt}
-                    $generatedPassword = Invoke-PSUtilWait $cmd "New-WinEC2Instance - retreive password" $Timeout
+                    $cmd = {Get-EC2PasswordData -InstanceId $instanceid -PemFile $keyfile -Decrypt 3>$null}
+                    $generatedPassword = Invoke-PSUtilWait $cmd "New-WinEC2Instance - retreive password" $Timeout -SleepTimeInMilliSeconds 5000
                     $time.'Password' = (Get-Date) - $startTime
                     Write-Verbose ('New-WinEC2Instance - {0:mm}:{0:ss} - to retreive password' -f ($time.Password))
                     $securepassword = ConvertTo-SecureString $generatedPassword -AsPlainText -Force
@@ -452,7 +458,7 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
                 $creds = New-Object System.Management.Automation.PSCredential ("Administrator", $securepassword)
 
                 $cmd = {New-PSSession $PublicIpAddress -Credential $creds -Port $Port}
-                $s = Invoke-PSUtilWait $cmd "New-WinEC2Instance - remote connection" $Timeout
+                $s = Invoke-PSUtilWait $cmd "New-WinEC2Instance - remote connection" $Timeout -ExceptionFilter '*'
                 Remove-PSSession $s
             }
             if ($SSMHeartBeat) {
@@ -741,7 +747,7 @@ function Invoke-WinEC2Command (
             Write-Verbose "Windows: ComputerName=$($instance.PublicIpAddress), Port=$Port, Script=$Script, UserName=$($parameters.'Credential'.UserName)"
             Invoke-Command -ComputerName $instance.PublicIpAddress -Port $Port -ScriptBlock $sb @parameters
         } elseif ($instance.PlatformName -eq 'Ubuntu' -or $instance.PlatformName -like '*Linux*') {
-            $keyfile = Get-WinEC2KeyFile $instance.KeyName
+            $keyfile = Get-WinEC2KeyFile $instance.KeyName 4>$null
 
             if ($instance.PlatformName -eq 'Ubuntu') {
                 $user = 'ubuntu'
@@ -749,7 +755,7 @@ function Invoke-WinEC2Command (
                 $user = 'ec2-user'
             }
             if ($Port -lt 0) { $Port = 22 }
-            Write-Verbose "Linux: Key=$keyfile, User=$user, Remote=$($Instance.PublicIpAddress), Port=$Port, Script=$Script"
+            #Write-Verbose "Linux: Key=$keyfile, User=$user, Remote=$($Instance.PublicIpAddress), Port=$Port, Script=$Script"
             Invoke-PsUtilSSHCommand -key $keyFile -user $user -remote $Instance.PublicIpAddress -port $Port -cmd $Script
         }
 

@@ -55,16 +55,16 @@ function Add-SSHKnowHosts ($consolelog, $key, $user, $remote, $port = 22) {
 }
 
 function Invoke-PsUtilSSHCommand ([string]$Key, [string]$User, [string]$remote, [string]$cmd, [string]$Port = 22) {
-    Write-Verbose "ssh -o StrictHostKeyChecking=no -i $key $user@$remote -p $port"
-    Write-Verbose "Invoke-PsUtilSSHCommand -Key $key -User $user -Remote $remote -Port $port"
-    Write-Verbose "Command:`n$cmd"
+    #Write-Verbose "ssh -o StrictHostKeyChecking=no -i $key $user@$remote -p $port '$Cmd'"
+    Write-Verbose "Invoke-PsUtilSSHCommand -Key $key -User $user -Remote $remote -Port $port -Cmd '$Cmd'"
+    #Write-Verbose "Command:`n$cmd"
 
     $cmd = $cmd.Replace("`r",'')
 
     $creds = New-Object System.Management.Automation.PSCredential ($User, (new-object System.Security.SecureString))
     $session = New-SSHSession -ComputerName $remote -KeyFile $key -Port $port -Credential $creds -AcceptKey -Force 3>$null
     $ret = Invoke-SSHCommand -Command $cmd -SSHSession $session -TimeOut 600
-    $null = Remove-SSHSession $session
+    $null = Remove-SSHSession $session -Verbose:$false
     $ret.Output
     if ($ret.ExitStatus -ne 0) {
         throw "ssh error, ExitStatus=$($ret.ExitStatus), Error=$($ret.Error)"

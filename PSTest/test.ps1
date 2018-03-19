@@ -17,7 +17,7 @@ function Invoke-PsTest (
 
     try {
         $repeat = getInheritedValue -objs @($CommonParameters) -key 'PsTestSuiteRepeat' -defaultValue 1
-        $maxFail = getInheritedValue -objs @($CommonParameters) -key 'PsTestSuiteMaxFail' -defaultValue 1
+        $maxFail = getInheritedValue -objs @($CommonParameters) -key 'PsTestMaxFail' -defaultValue 1
         $maxConsecutiveFailPerTest = getInheritedValue -objs @($CommonParameters) -key 'PsTestSuiteMaxConsecutiveFailPerTest' -defaultValue 1
 
         $totalFailCount = $totalSuccessCount = 0
@@ -28,15 +28,19 @@ function Invoke-PsTest (
             copyKeys -dest $obj -source $CommonParameters
             $obj.PsTestSuiteRepeat = "$j of $repeat"
 
-            Write-Host "***BEGIN Test Suite: $j of $repeat"
+            Write-Host "`n`n***BEGIN Test Suite: $j of $repeat"
             #logObject -message 'Parameters' -obj $obj
 
-            foreach ($test in $Tests) {
+            for($testIndex=0; $testIndex -lt $Tests.Count; $testIndex++) {
+                $test = $Tests[$testIndex]
                 $testName = getTestName($Test)
+                $testNameWithIndex = "$testName$testIndex"
+                #$prefix = "$LogNamePrefix.Suite=$("{0:D4}" -f $j) Test=$("{0:D3}" -f $testIndex)-$testName"
+                $prefix = "$LogNamePrefix Suite#=$j of $repeat, Test#=$($testIndex+1) of $($Tests.Count), Test=$testName"
                 if ($test.PsTestParallelCount -gt 1) {
-                    $ret = runParallelTest -Test $test  -obj $obj -LogNamePrefix "$LogNamePrefix.$("{0:D4}" -f $j).$testName" 
+                    $ret = runParallelTest -Test $test  -obj $obj -LogNamePrefix $prefix 
                 } else {
-                    $ret = runTest -Test $test -obj $obj -LogNamePrefix "$LogNamePrefix.$("{0:D4}" -f $j).$testName"
+                    $ret = runTest -Test $test -obj $obj -LogNamePrefix $prefix
                 }
                 $totalFailCount += $ret.FailCount
                 $totalSuccessCount += $ret.SuccessCount
@@ -44,13 +48,13 @@ function Invoke-PsTest (
                 Write-Host "Overall Summary: TestSuite Repeat=$j of $repeat, Total Success=$totalSuccessCount, Total Fail=$totalFailCount"
                 Write-Host ''
                 if ($ret.FailCount -gt 0) {
-                    $consecutiveFailCount.$testName++
+                    $consecutiveFailCount.$testNameWithIndex++
                 } else  {
-                    $consecutiveFailCount.$testName = 0
+                    $consecutiveFailCount.$testNameWithIndex = 0
                 }
 
-                if ($maxConsecutiveFailPerTest -le $consecutiveFailCount.$testName) {
-                    throw "TestSuite: Max consecutive failures per test reached, current ConsecutiveFailCount=$($consecutiveFailCount.$testName), MaxConsecutiveFail=$maxConsecutiveFailPerTest"
+                if ($maxConsecutiveFailPerTest -le $consecutiveFailCount.$testNameWithIndex) {
+                    throw "TestSuite: Max consecutive failures per test reached, current ConsecutiveFailCount=$($consecutiveFailCount.$testNameWithIndex), MaxConsecutiveFail=$maxConsecutiveFailPerTest"
                 }
 
                 if ($ret.FailCount -gt 0) {
@@ -90,10 +94,10 @@ function runParallelTest (
 {
     $testName = getTestName($Test)
     $ps = @()
-    Write-PSUtilLog "**BEGIN TEST '$testName'"
-    Write-PSUtilLog "PsTestSuiteRepeat: $($obj.PsTestSuiteRepeat)"
+    Write-HOST "**BEGIN TEST '$testName'" 
+    Write-HOST "PsTestSuiteRepeat: $($obj.PsTestSuiteRepeat)"
     for ($i = 1; $i -le $Test.PsTestParallelCount; $i++) {
-        $file = "$LogNamePrefix.$i"
+        $file = "$LogNamePrefix.Parallel=$i"
 
         "`$obj = $(Convertto-PS $obj)" > "$file.ps1"
 
@@ -106,7 +110,7 @@ function runParallelTest (
         'Stop-Process -Id $pid' >> "$file.ps1"
 
         $windowStyle = 'Minimized' #default is minimized
-        if ($obj.PsTestMaxFail -eq 1) { #if error count is zero, assumed to run in debug model
+        if ($obj.PsTestRepeatMaxFail -eq 1) { #if error count is zero, assumed to run in debug model
             $windowStyle = 'Normal'
         }
         $process = Start-Process -FilePath "$PSHOME\powershell.exe" -PassThru -ArgumentList @('-NoExit', '-NoProfile', "-command . '.\$file.ps1'") -WindowStyle $windowStyle
@@ -114,12 +118,12 @@ function runParallelTest (
         $ps += $process
 
 
-        Write-PSUtilLog "[$file] Started process"
+        Write-HOST "[$file] Started process"
     }
 
     $failCount = $successCount = 0
     for ($i = 1; $i -le $ps.Count; $i++) {
-        $file = "$LogNamePrefix.$i"
+        $file = "$LogNamePrefix.Parallel=$i"
         Write-Host "[$file] Waiting for process to exit"
         $ps[$i-1].WaitForExit()
         Write-Host "[$file] Completed ExitCode=$($ps[$i-1].ExitCode)"
@@ -139,8 +143,8 @@ function runParallelTest (
         }
         del "$file.out.ps1","$file.ps1" -Force -EA:0
     }
-    Write-PSUtilLog "**END TEST '$testName'"
-    Write-PSUtilLog ''
+    Write-HOST "**END TEST '$testName'"
+    Write-HOST ''
     return @{FailCount=$failCount;SuccessCount=$successCount}
 }
 
@@ -150,18 +154,18 @@ function runTest (
     $obj, 
     [string]$LogNamePrefix)
 {
-    $maxFail = getInheritedValue -objs @($test, $obj) -key 'PsTestMaxFail' -defaultValue 1
-    $maxConsecutiveFail = getInheritedValue -objs @($test, $obj) -key 'PsTestMaxConsecutiveFail' -defaultValue 1
+    $maxFail = getInheritedValue -objs @($test, $obj) -key 'PsTestRepeatMaxFail' -defaultValue 1
+    $maxConsecutiveFail = getInheritedValue -objs @($test, $obj) -key 'PsTestRepeatMaxConsecutiveFail' -defaultValue 1
     $sb, $parameters, $testname, $testRepeat = getExecutionContext($Test)
     $failCount = $successCount = $consecutiveFailCount = 0
     for ($i = 1; $i -le $testRepeat; $i++) {
         
         $newobj = cloneTestObject $obj $Test
-        $newobj.PsTestLog = "$LogNamePrefix.$i.log"
+        $newobj.PsTestLog = "$LogNamePrefix,Repeat#=$i of $testRepeat.log"
         $newobj.PsTestResult = 'Success'
         Set-PSUtilLogFile $newobj.PsTestLog 
         Write-PSUtilLog ''
-        Write-PSUtilLog "**BEGIN TEST '$TestName' (PsTestRepeat=$i of $testRepeat)"
+        Write-PSUtilLog "**BEGIN TEST '$TestName' (PsTestRepeat=$i of $testRepeat, $LogNamePrefix)"
         Write-PSUtilLog "PsTestSuiteRepeat: $($obj.PsTestSuiteRepeat)"
     
         logObject 'Before State' $newobj -keyorder @()
@@ -200,9 +204,6 @@ function runTest (
                 Write-PSUtilLog ''
                 Set-PSUtilTimeStamp -TimeStamp $true
             }
-            if ($test.FailBehavior -eq 'SkipTests') {
-                break
-            }
         }
 
         Write-PSUtilLog "Test=$testname, Result=$($newobj.PsTestResult), Message=$($newobj.PsTestMessage)"
@@ -220,6 +221,10 @@ function runTest (
         }
         if ($maxConsecutiveFail -le $consecutiveFailCount) {
             throw "Max consecutive failures reached, current ConsecutiveFailCount=$consecutiveFailCount, MaxConsecutiveFail=$maxConsecutiveFail"
+        }
+
+        if ((-not $ret) -and $test.FailBehavior -eq 'SkipTests') {
+            break
         }
 
         copyKeys -dest $obj -source $newobj -keys $Test.PsTestOutputKeys

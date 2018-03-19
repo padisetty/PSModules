@@ -41,11 +41,11 @@ $commonParameters = @{
     
     PsTestSuiteRepeat=2 # number of times all test should be repeated with this set.
 
-    PsTestSuiteMaxFail=10 # max failures allowed
+    PsTestMaxFail=10 # max failures allowed
     PsTestSuiteMaxConsecutiveFailPerTest=2 #multiple failures in the same test is counted as 1 
 
-    PsTestMaxFail=3 # per test
-    PsTestMaxConsecutiveFail=3 # per test
+    PsTestRepeatMaxFail=3 # per test
+    PsTestRepeatMaxConsecutiveFail=3 # per test
 
     Param1='Param1-Value1'
     numerator=1
