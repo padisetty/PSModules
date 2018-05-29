@@ -34,7 +34,7 @@
 #    if you are running blocks of code from ISE PSScriptRoot will not be defined.
 #
 
-Import-Module -Global AWSPowerShell -Verbose:$false
+#Import-Module -Global AWSPowerShell -Verbose:$false
 Import-Module PSUtil -Force -Global  -Verbose:$false
 trap { break } #This stops execution on any exception
 $ErrorActionPreference = 'Stop'
@@ -172,10 +172,13 @@ function findInstance
     (Invoke-PSUtilRetryOnError {Get-EC2Instance -Filter $filters} -IngnoreOnlySpecificErrors '*limit*').Instances
 }
 
+<#
 $DefaultRegion = 'us-east-1'
+$generated=Get-Random -Maximum 100
 function getAndSetRegion ([string]$Region)
 {
-#Write-Host "getAndSetRegion Region=$Region, DefaultAWSRegion=$((Get-DefaultAWSRegion).Region)"
+Write-Host "getAndSetRegion entering Generated=$generated, Region=$Region, DefaultRegion=$DefaultRegion, Get-DefaultAWSRegion=$((Get-DefaultAWSRegion).Region)"
+return
     if ($Region.Length -gt 0) 
     {
         Set-DefaultAWSRegion $Region
@@ -190,9 +193,11 @@ function getAndSetRegion ([string]$Region)
         }
     }
     $script:DefaultRegion = $Region
+    #$global:StoredAWSRegion = $Region
+Write-Host "getAndSetRegion leaving: Generated=$generated, Region=$Region, DefaultRegion=$DefaultRegion, Get-DefaultAWSRegion=$((Get-DefaultAWSRegion).Region)"
     return $Region
-#Write-Host "getAndSetRegion Region=$Region, DefaultAWSRegion=$((Get-DefaultAWSRegion).Region)"
 }
+#>
 
 function Get-WinEC2Instance
 {
@@ -203,8 +208,8 @@ function Get-WinEC2Instance
     )
 #Write-HOST "Get-WinEC2Instance: NameOrInstanceIds=$NameOrInstanceIds, DesiredState=$DesiredState, Region=$Region, RegionSetAs=$((Get-DefaultAWSRegion).Region)"
 
-    $RegionSetAs = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
-    Write-Verbose "Get-WinEC2Instance: NameOrInstanceIds=$NameOrInstanceIds, DesiredState=$DesiredState, Region=$Region, RegionSetAs=$RegionSetAs"
+    #$RegionSetAs = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    Write-Verbose "Get-WinEC2Instance: NameOrInstanceIds=$NameOrInstanceIds, DesiredState=$DesiredState, Region=$Region"
 
     $instances = findInstance -NameOrInstanceIds $NameOrInstanceIds -DesiredState $DesiredState
 
@@ -225,7 +230,7 @@ function Get-WinEC2ConsoleOutput
         [Parameter (Position=1)][string]$NameOrInstanceIds = '*',
         [Parameter(Position=2)][string]$Region
     )
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    #$Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
 
     $instances = findInstance -nameOrInstanceIds $NameOrInstanceIds -DesiredState '*'
     foreach ($instance in $instances)
@@ -293,7 +298,7 @@ $(if ($Name -eq $null -or (-not $RenameComputer)) { 'Restart-Service winrm' }
 
     trap { break } #This stops execution on any exception
     $ErrorActionPreference = 'Stop'
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    #$Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
     Write-Verbose ("New-WinEC2Instance InstanceType=$InstanceType, " + 
             "AmiId=$AmiId, ImagePrefix=$ImagePrefix, Region=$Region, " +
             "KeyPairName=$KeyPairName, SecurityGroupName=$SecurityGroupName, " +
@@ -506,7 +511,7 @@ function Set-WinEC2Password (
 {
     trap { break }
     $ErrorActionPreference = 'Stop'
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    #$Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
     Write-Verbose "Set-WinEC2Password - NameOrInstanceIds=$NameOrInstanceIds, Region=$Region"
 
     $instances = findInstance -nameOrInstanceIds $NameOrInstanceIds -DesiredState $DesiredState 
@@ -553,7 +558,7 @@ function Remove-WinEC2Instance (
 {
     trap { break }
     $ErrorActionPreference = 'Stop'
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    #$Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
     Write-Verbose "Remove-WinEC2Instance - NameOrInstanceIds=$NameOrInstanceIds, Region=$Region"
 
     $instances = findInstance -nameOrInstanceIds $NameOrInstanceIds -DesiredState $DesiredState 
@@ -578,7 +583,7 @@ function Stop-WinEC2Instance (
 {
     trap { break }
     $ErrorActionPreference = 'Stop'
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    #$Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
     Write-Verbose "Stop-WinEC2Instance - NameOrInstanceIds=$NameOrInstanceIds, Region=$Region"
 
     $instances = findInstance $NameOrInstanceIds
@@ -612,7 +617,7 @@ function Start-WinEC2Instance (
 {
     trap { break }
     $ErrorActionPreference = 'Stop'
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    #$Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
     Write-Verbose "Start-WinEC2Instance - NameOrInstanceId=$NameOrInstanceIds, Region=$Region"
     $parameters = @{}
     if ($Credential)
@@ -671,7 +676,7 @@ function ReStart-WinEC2Instance (
 {
     trap { break }
     $ErrorActionPreference = 'Stop'
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    #$Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
     Write-Verbose "ReStart-WinEC2Instance - NameOrInstanceId=$NameOrInstanceIds, Region=$Region"
     $parameters = @{}
     if ($Credential)
@@ -723,7 +728,7 @@ function Invoke-WinEC2Command (
 {
     trap { break }
     $ErrorActionPreference = 'Stop'
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    #$Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
 
     $parameters = @{}
 
@@ -755,7 +760,7 @@ function Invoke-WinEC2Command (
                 $user = 'ec2-user'
             }
             if ($Port -lt 0) { $Port = 22 }
-            #Write-Verbose "Linux: Key=$keyfile, User=$user, Remote=$($Instance.PublicIpAddress), Port=$Port, Script=$Script"
+            Write-Verbose "Linux: Key=$keyfile, User=$user, Remote=$($Instance.PublicIpAddress), Port=$Port, Script=$Script"
             Invoke-PsUtilSSHCommand -key $keyFile -user $user -remote $Instance.PublicIpAddress -port $Port -cmd $Script
         }
 
@@ -773,7 +778,7 @@ function Invoke-WinEC2CommandOld (
 {
     trap { break }
     $ErrorActionPreference = 'Stop'
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    #$Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
     Write-Verbose "Invoke-WinEC2Command - NameOrInstanceIds=$NameOrInstanceIds, ScriptBlock=$sb, Region=$Region"
 
     $parameters = @{}
@@ -797,7 +802,7 @@ function Connect-WinEC2Instance (
     )
 {
     trap { break }
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    #$Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
 
     $instance = findInstance $NameOrInstanceId 'running'
     mstsc /v:$($instance.PublicIpAddress)
@@ -824,7 +829,7 @@ function Get-WinEC2Password (
 {
     trap { break }
     $ErrorActionPreference = 'Stop'
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    #$Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
     Write-Verbose "Get-WinEC2Password - NameOrInstanceId=$NameOrInstanceId, Region=$Region"
 
     $instances = findInstance $NameOrInstanceId
@@ -891,7 +896,7 @@ function New-WinEC2KeyPair (
 {
     trap { break }
     $ErrorActionPreference = 'Stop'
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    #$Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
 
     $KeyFile="$($WinEC2Defaults.DefaultKeypairFolder)\$KeyPairName"
 
@@ -920,7 +925,7 @@ function Remove-WinEC2KeyPair (
 {
     trap { break }
     $ErrorActionPreference = 'Stop'
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    #$Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
     Write-Verbose "Remove-WinEC2KeyPair - KeyPairName=$KeyPairName"
 
     if (Get-EC2KeyPair -KeyNames $KeyPairName)
@@ -937,7 +942,7 @@ function Get-WinEC2KeyPair (
 {
     trap { break }
     $ErrorActionPreference = 'Stop'
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    #$Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
 
     if ($KeyPairName)
     {
@@ -1006,7 +1011,7 @@ function Update-WinEC2FireWallSource
 
     trap {break }
     $ErrorActionPreference = 'Stop'
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+   # $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
 
     if ($securityGroup = (Get-EC2SecurityGroup | ? { $_.GroupName -eq $securityGroupName })) {
         Write-Verbose "Skipping as SecurityGroup ($securityGroupName) already present."
@@ -1090,7 +1095,7 @@ function Update-WinEC2FireWallSourceOld
     )
     trap {break }
     $ErrorActionPreference = 'Stop'
-    $Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
+    #$Region = . getAndSetRegion $Region # Execute in current context for Set-DefaultAWSRegion
 
     if ($VpcId -eq $null)
     {

@@ -30,12 +30,12 @@ function Convertto-PS ($obj,
         $null = $sb.Append(')')
         return $sb.ToString()
     } elseif ($obj -is [Boolean] -or $obj -is [System.Management.Automation.SwitchParameter]) {
-        '$' + $obj.ToString()
+        return '$' + $obj.ToString()
     } elseif ($obj -is [System.ValueType]) {
-        "[$($obj.GetType())]'$($obj.ToString())'"
+        return "[$($obj.GetType())]'$($obj.ToString())'"
     } else {`
         $st = $obj.ToString().Replace("'","''")
-        "'$st'"
+        return "'$st'"
     } 
 
 <#
@@ -63,14 +63,15 @@ function Get-PSUtilStringFromObject ($obj, $splitchar = "`t")
     $st = ''
     foreach ($key in $obj.Keys)
     {
-        if ($obj[$key] -is [Timespan])
+        <#if ($obj[$key] -is [Timespan])
         {
             $value = '{0:hh\:mm\:ss}' -f $obj."$key"
         }
         else
         {
             $value = [string]$obj[$key]
-        }
+        }#>
+        $value = (Convertto-PS $obj.$key).replace("`r`n",'')
         if ($st.Length -gt 0)
         {
             $st = "$st$splitchar$key=$value"

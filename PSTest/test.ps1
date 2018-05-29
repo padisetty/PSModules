@@ -172,7 +172,8 @@ function runTest (
 
         $startTime = Get-Date
         $ret = runFunction $sb $parameters $newobj
-        $newobj.PsTestExecutionTime = "'$(((Get-Date) - $startTime).ToString())'"
+        #$newobj.PsTestExecutionTime = "'$(((Get-Date) - $startTime).ToString())'"
+        $newobj.PsTestExecutionTime = (Get-Date - $startTime)
 
         if ($test.PsTestOutputObjectFile) {
             if ($i -eq 1) {
@@ -244,9 +245,9 @@ function runFunction ($sb, $parameters, $obj) {
             $inputParams.PsTestObject = $obj
         } elseif ($obj.ContainsKey($paramname)) {
             $inputParams.$paramname = $obj[$paramname]
-            Write-PSUtilLog "    Parameter $paramname=$($obj[$paramname]) (Overritten)"
+            Write-PSUtilLog "    Parameter $paramname=$((Convertto-PS $obj[$paramname]).replace("`r`n",'')) (Overritten)"
         } else {
-            Write-PSUtilLog "    Parameter $paramname=$($parameter.DefaultValue) (Default Value)"
+            Write-PSUtilLog "    Parameter $paramname=$((Convertto-PS $parameter.DefaultValue).replace("`r`n",'')) (Default Value)"
         }
     }
 
