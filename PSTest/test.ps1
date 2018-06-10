@@ -173,7 +173,7 @@ function runTest (
         $startTime = Get-Date
         $ret = runFunction $sb $parameters $newobj
         #$newobj.PsTestExecutionTime = "'$(((Get-Date) - $startTime).ToString())'"
-        $newobj.PsTestExecutionTime = (Get-Date - $startTime)
+        $newobj.PsTestExecutionTime = (Get-Date) - $startTime
 
         if ($test.PsTestOutputObjectFile) {
             if ($i -eq 1) {
